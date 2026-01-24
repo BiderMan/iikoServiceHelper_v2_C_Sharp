@@ -1,6 +1,7 @@
 # iikoService Helper (C# WPF Edition)
 
 Приложение для автоматизации ответов с GUI и системным треем, переписанное на .NET 6 (WPF).
+![alt text](image.png)
 
 ## Требования
 
