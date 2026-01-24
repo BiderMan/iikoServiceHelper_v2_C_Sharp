@@ -1,0 +1,229 @@
+<Window x:Class="iikoServiceHelper.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="iikoServiceHelper_v2" Height="600" Width="950"
+        Background="#121212" Foreground="White">
+    <Window.Resources>
+        <!-- Colors -->
+        <Color x:Key="ColorAccent">#B026FF</Color>
+        <SolidColorBrush x:Key="BrushAccent" Color="{StaticResource ColorAccent}"/>
+        <SolidColorBrush x:Key="BrushBackground" Color="#1E1E24"/>
+        <SolidColorBrush x:Key="BrushForeground" Color="#E0E0E0"/>
+        
+        <!-- Button Style -->
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#1AB026FF"/>
+                                <Setter TargetName="border" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect Color="{StaticResource ColorAccent}" BlurRadius="15" ShadowDepth="0" Opacity="0.6"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource BrushAccent}"/>
+                                <Setter Property="Foreground" Value="#121212"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- TextBox Style -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#25252A"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3E3E42"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="CaretBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="4">
+                            <ScrollViewer x:Name="PART_ContentHost"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+                                <Setter TargetName="border" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect Color="{StaticResource ColorAccent}" BlurRadius="5" ShadowDepth="0" Opacity="0.3"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- DataGrid Style -->
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="RowBackground" Value="Transparent"/>
+            <Setter Property="AlternatingRowBackground" Value="#08FFFFFF"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushForeground}"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#333333"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="ColumnHeaderStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
+                        <Setter Property="Padding" Value="10,8"/>
+                        <Setter Property="FontWeight" Value="Bold"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                        <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="CellStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Padding" Value="10,8"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridCell">
+                                    <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="0">
+                                        <ContentPresenter VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#22B026FF"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- TabItem Style -->
+        <Style TargetType="TabItem">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Border" Padding="20,10" Margin="0,0,10,0" Background="Transparent" 
+                                BorderBrush="Transparent" BorderThickness="0,0,0,3" Cursor="Hand">
+                            <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" 
+                                              ContentSource="Header" RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+                                <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
+                                <Setter TargetName="Border" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect Color="{StaticResource ColorAccent}" BlurRadius="15" ShadowDepth="0" Opacity="0.4"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    
+    <Grid>
+        <Grid.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#000000" Offset="0.0"/>
+                <GradientStop Color="#1A0029" Offset="1.0"/>
+            </LinearGradientBrush>
+        </Grid.Background>
+
+        <!-- Header / Title Area Decoration -->
+        <Border Height="1" VerticalAlignment="Top" Margin="20,50,20,0" Background="#333333"/>
+
+        <!-- Counter -->
+        <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,15,20,0" 
+                Background="#25252A" BorderBrush="#333333" BorderThickness="1" CornerRadius="4" Padding="15,5">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="EXECUTED: " Foreground="#666666" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock x:Name="txtCommandCount" Text="0" Foreground="{StaticResource BrushAccent}" FontSize="16" FontWeight="Bold" VerticalAlignment="Center">
+                    <TextBlock.Effect>
+                        <DropShadowEffect Color="{StaticResource ColorAccent}" BlurRadius="8" ShadowDepth="0" Opacity="0.8"/>
+                    </TextBlock.Effect>
+                </TextBlock>
+                <Button Content="↺" Click="ResetCommandCount_Click" Margin="10,0,0,0" Padding="8,2" FontSize="14" VerticalAlignment="Center" ToolTip="Сбросить счетчик"/>
+            </StackPanel>
+        </Border>
+
+        <TabControl Background="Transparent" BorderThickness="0" Margin="10">
+            <!-- Tab 1: Reference (ReadOnly) -->
+            <TabItem Header="КОМАНДЫ">
+                <Grid Margin="10">
+                    <DataGrid x:Name="ReferenceGrid" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" FontSize="12">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="СОЧЕТАНИЕ" Binding="{Binding Keys}" Width="250" FontWeight="Bold"/>
+                            <DataGridTextColumn Header="ОПИСАНИЕ" Binding="{Binding Desc}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- Tab 2: Notes -->
+            <TabItem Header="ЗАМЕТКИ">
+                <Grid Margin="10">
+                    <TextBox x:Name="txtNotes" AcceptsReturn="True" TextWrapping="Wrap" 
+                             VerticalScrollBarVisibility="Auto" LostFocus="txtNotes_LostFocus"
+                             FontFamily="Segoe UI" FontSize="14" Background="#151518"/>
+                </Grid>
+            </TabItem>
+            
+             <!-- Tab 3: Tools -->
+            <TabItem Header="ИНСТРУМЕНТЫ">
+                <StackPanel Margin="20">
+                     <TextBlock Text="ДОСТУПНЫЕ УТИЛИТЫ" Foreground="#666666" FontSize="12" Margin="5,0,0,10" FontWeight="Bold"/>
+                     <Button Content="ORDERCHECK" Click="OpenOrderCheck_Click" HorizontalAlignment="Left" Width="250"/>
+                     <Button Content="CLEAR.bat" Click="OpenClearBat_Click" HorizontalAlignment="Left" Width="250"/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <!-- Credits -->
+        <TextBlock Text="by Yustus  " HorizontalAlignment="Right" VerticalAlignment="Bottom" 
+                   Margin="15,0,0,5" Foreground="#666666" FontSize="11" IsHitTestVisible="False"/>
+    </Grid>
+</Window>

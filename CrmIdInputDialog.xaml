@@ -1,0 +1,19 @@
+<Window x:Class="iikoServiceHelper.CrmIdInputDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Укажи список CRMID" Height="300" Width="350"
+        WindowStartupLocation="CenterOwner" Topmost="True"
+        Background="#2D2D30" Foreground="White">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBox x:Name="txtList" Grid.Row="0" AcceptsReturn="True" 
+                 Background="#1E1E1E" Foreground="White" 
+                 BorderBrush="#3E3E42" Padding="5" FontSize="14"/>
+        <Button x:Name="btnTransfer" Grid.Row="1" Content="Перенести" 
+                Margin="0,10,0,0" Height="30" Click="BtnTransfer_Click"
+                Background="#3E3E42" Foreground="White" BorderThickness="0"/>
+    </Grid>
+</Window>

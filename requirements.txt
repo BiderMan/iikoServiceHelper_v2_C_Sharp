@@ -1,0 +1,8 @@
+keyboard
+pystray
+Pillow
+pyinstaller
+customtkinter
+requests
+pynput
+pyperclip
