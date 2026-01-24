@@ -10,6 +10,7 @@
     <Company>Yustus</Company>
     <Product>iikoServiceHelper_v2</Product>
     <Version>2.2.0</Version>
+    <AssemblyName>iikoServiceHelper_v$(Version)</AssemblyName>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
