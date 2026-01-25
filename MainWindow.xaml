@@ -205,10 +205,18 @@
 
             <!-- Tab 2: Notes -->
             <TabItem Header="ЗАМЕТКИ">
-                <Grid Margin="10">
-                    <TextBox x:Name="txtNotes" AcceptsReturn="True" TextWrapping="Wrap" 
+                <Grid Margin="3">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,-5,0,0">
+                        <Button Content="🔍+" Click="BtnZoomIn_Click" Width="24" Height="24" Margin="1" Padding="0" FontSize="10" ToolTip="Увеличить"/>
+                        <Button Content="🔍-" Click="BtnZoomOut_Click" Width="24" Height="24" Margin="1" Padding="0" FontSize="10" ToolTip="Уменьшить"/>
+                    </StackPanel>
+                    <TextBox Grid.Row="1" x:Name="txtNotes" AcceptsReturn="True" TextWrapping="Wrap" 
                              VerticalScrollBarVisibility="Auto" LostFocus="txtNotes_LostFocus"
-                             FontFamily="Segoe UI" FontSize="14" Background="#151518"/>
+                             FontFamily="Segoe UI" FontSize="14" Background="#151518" Margin="0,10,0,10"/>
                 </Grid>
             </TabItem>
             
@@ -224,6 +232,6 @@
 
         <!-- Credits -->
         <TextBlock Text="by Yustus  " HorizontalAlignment="Right" VerticalAlignment="Bottom" 
-                   Margin="15,0,0,5" Foreground="#666666" FontSize="11" IsHitTestVisible="False"/>
+                   Margin="15,5,5,5" Foreground="#666666" FontSize="11" IsHitTestVisible="False"/>
     </Grid>
 </Window>

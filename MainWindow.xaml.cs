@@ -21,6 +21,7 @@ namespace iikoServiceHelper
         private const string AppName = "iikoServiceHelper_v2";
         private readonly string AppDir;
         private readonly string NotesFile;
+        private readonly string SettingsFile;
 
         private Forms.NotifyIcon? _trayIcon;
         private HotkeyManager _hotkeyManager;
@@ -45,10 +46,12 @@ namespace iikoServiceHelper
             AppDir = Path.Combine(localAppData, AppName);
             Directory.CreateDirectory(AppDir);
             NotesFile = Path.Combine(AppDir, "notes.txt");
+            SettingsFile = Path.Combine(AppDir, "settings.json");
 
             // Init Logic
             InitializeHotkeys();
             LoadNotes();
+            LoadSettings();
             InitializeTray();
             _overlay = new OverlayWindow();
             
@@ -63,6 +66,7 @@ namespace iikoServiceHelper
             this.Closing += (s, e) => 
             {
                 SaveNotes();
+                SaveSettings();
                 if (_trayIcon != null) _trayIcon.Visible = false;
                 _hotkeyManager.Dispose();
                 System.Windows.Application.Current.Shutdown();
@@ -520,11 +524,51 @@ namespace iikoServiceHelper
                 }
             }
         }
+
+        private void BtnZoomIn_Click(object sender, RoutedEventArgs e)
+        {
+            if (txtNotes.FontSize < 72) txtNotes.FontSize += 1;
+        }
+
+        private void BtnZoomOut_Click(object sender, RoutedEventArgs e)
+        {
+            if (txtNotes.FontSize > 8) txtNotes.FontSize -= 1;
+        }
+
+        private void LoadSettings()
+        {
+            try
+            {
+                if (File.Exists(SettingsFile))
+                {
+                    var json = File.ReadAllText(SettingsFile);
+                    var settings = JsonSerializer.Deserialize<AppSettings>(json);
+                    if (settings != null) txtNotes.FontSize = settings.NotesFontSize;
+                }
+            }
+            catch { }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                var settings = new AppSettings { NotesFontSize = txtNotes.FontSize };
+                var json = JsonSerializer.Serialize(settings);
+                File.WriteAllText(SettingsFile, json);
+            }
+            catch { }
+        }
     }
 
     public class HotkeyDisplay
     {
         public string Keys { get; set; } = "";
         public string Desc { get; set; } = "";
+    }
+
+    public class AppSettings
+    {
+        public double NotesFontSize { get; set; } = 14;
     }
 }
