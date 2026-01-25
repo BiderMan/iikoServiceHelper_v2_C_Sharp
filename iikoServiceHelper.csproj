@@ -9,13 +9,21 @@
     <Authors>Yustus</Authors>
     <Company>Yustus</Company>
     <Product>iikoServiceHelper_v2</Product>
-    <Version>2.2.0</Version>
+    <Version>2.2.1</Version>
     <AssemblyName Condition="'$(Configuration)' == 'Release'">iikoServiceHelper_v$(Version)</AssemblyName>
     <RuntimeIdentifier Condition="'$(Configuration)' == 'Release'">win-x64</RuntimeIdentifier>
     <PublishSingleFile Condition="'$(Configuration)' == 'Release'">true</PublishSingleFile>
     <SelfContained Condition="'$(Configuration)' == 'Release'">true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract Condition="'$(Configuration)' == 'Release'">true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationIcon>Logo.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Logo.ico" />
+    <Content Include="Logo_trey.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 
   <PropertyGroup Condition="'$(SelfContained)' == 'false' And '$(Configuration)' == 'Release'">
     <AssemblyName>iikoServiceHelper_Compact</AssemblyName>

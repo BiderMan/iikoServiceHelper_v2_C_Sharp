@@ -207,9 +207,19 @@ namespace iikoServiceHelper
 
         private void InitializeTray()
         {
+            System.Drawing.Icon trayIcon;
+            try
+            {
+                trayIcon = new System.Drawing.Icon(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logo_trey.ico"));
+            }
+            catch
+            {
+                trayIcon = System.Drawing.SystemIcons.Application;
+            }
+
             _trayIcon = new Forms.NotifyIcon
             {
-                Icon = System.Drawing.SystemIcons.Application,
+                Icon = trayIcon,
                 Visible = true,
                 Text = "iikoServiceHelper_v2"
             };
