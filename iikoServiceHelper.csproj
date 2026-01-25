@@ -20,9 +20,7 @@
 
   <ItemGroup>
     <Resource Include="Logo.ico" />
-    <Content Include="Logo_trey.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <EmbeddedResource Include="Logo_trey.ico" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(SelfContained)' == 'false' And '$(Configuration)' == 'Release'">

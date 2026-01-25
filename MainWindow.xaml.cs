@@ -214,7 +214,13 @@ namespace iikoServiceHelper
             System.Drawing.Icon trayIcon;
             try
             {
-                trayIcon = new System.Drawing.Icon(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logo_trey.ico"));
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                using var stream = assembly.GetManifestResourceStream("iikoServiceHelper.Logo_trey.ico");
+                
+                if (stream != null)
+                    trayIcon = new System.Drawing.Icon(stream);
+                else
+                    trayIcon = System.Drawing.SystemIcons.Application;
             }
             catch
             {
