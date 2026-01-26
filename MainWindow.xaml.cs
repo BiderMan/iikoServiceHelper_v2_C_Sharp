@@ -1444,12 +1444,64 @@ namespace iikoServiceHelper
             {
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
                 await http.GetStringAsync("http://127.0.0.1:9222/json");
-                MessageBox.Show("Порт 9222 ДОСТУПЕН.\nБраузер готов к управлению.", "Статус порта", MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowCustomMessage("Статус порта", "Порт 9222 ДОСТУПЕН.\nБраузер готов к управлению.", false);
             }
             catch
             {
-                MessageBox.Show("Порт 9222 НЕДОСТУПЕН.\nУбедитесь, что браузер запущен с флагом --remote-debugging-port=9222", "Статус порта", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowCustomMessage("Статус порта", "Порт 9222 НЕДОСТУПЕН.\nУбедитесь, что браузер запущен с флагом --remote-debugging-port=9222", true);
             }
+        }
+
+        private void ShowCustomMessage(string title, string message, bool isError)
+        {
+            var win = new Window
+            {
+                Title = title,
+                Width = 350,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                Background = (System.Windows.Media.Brush)FindResource("BrushBackground"),
+                Foreground = System.Windows.Media.Brushes.White
+            };
+
+            var stack = new StackPanel { Margin = new Thickness(20) };
+
+            var txtHeader = new TextBlock
+            {
+                Text = isError ? "❌ ОШИБКА" : "✅ УСПЕХ",
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Foreground = isError ? System.Windows.Media.Brushes.IndianRed : System.Windows.Media.Brushes.LightGreen,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+
+            var txtMessage = new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 14,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 20),
+                Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground")
+            };
+
+            var btnOk = new Button
+            {
+                Content = "OK",
+                Width = 100,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            btnOk.Click += (s, e) => win.Close();
+
+            stack.Children.Add(txtHeader);
+            stack.Children.Add(txtMessage);
+            stack.Children.Add(btnOk);
+
+            win.Content = stack;
+            win.ShowDialog();
         }
     }
 
