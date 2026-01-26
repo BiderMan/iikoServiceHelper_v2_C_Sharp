@@ -111,24 +111,30 @@ namespace iikoServiceHelper
             
             var groupedCmds = new Dictionary<string, List<string>>();
             var descOrder = new List<string>();
+            var descDetails = new Dictionary<string, string>();
+
+            Action<string?> botCmd = (cmd) => ExecuteBotCommand(cmd);
+            Action<string> reply = (text) => ExecuteReply(text);
 
             // Helper to register keys
-            void Reg(string keys, string desc, Action action)
+            void Reg(string keys, string desc, Action action, string? fullText = null)
             {
                 _hotkeyActions[keys] = action;
                 if (!groupedCmds.ContainsKey(desc))
                 {
                     groupedCmds[desc] = new List<string>();
                     descOrder.Add(desc);
+                    descDetails[desc] = fullText ?? desc;
                 }
                 groupedCmds[desc].Add(keys);
             }
+            
+            void RegReply(string keys, string desc, string text) => Reg(keys, desc, () => reply(text), text);
+            void RegBot(string keys, string desc, string cmd) => Reg(keys, desc, () => botCmd(cmd), cmd);
 
             // --- BOT COMMANDS ---
             // Logic: Type @chat_bot -> Enter -> Type Command -> Enter
             
-            Action<string?> botCmd = (cmd) => ExecuteBotCommand(cmd);
-
             // Special handler for @chat_bot call with double Enter
             Action botCall = () => 
             {
@@ -142,19 +148,19 @@ namespace iikoServiceHelper
                 }
             };
 
-            Reg("Alt+D0", "@chat_bot (Вызов)", botCall);
-            Reg("Alt+C",  "@chat_bot (Вызов)", botCall);
+            Reg("Alt+D0", "@chat_bot (Вызов)", botCall, "Вызов меню бота (@chat_bot)");
+            Reg("Alt+C",  "@chat_bot (Вызов)", botCall, "Вызов меню бота (@chat_bot)");
             
-            Reg("Alt+D1", "cmd newtask", () => botCmd("cmd newtask"));
-            Reg("Alt+D2", "cmd add crmid", () => botCmd("cmd add crmid"));
-            Reg("Alt+D3", "cmd add user", () => botCmd("cmd add user"));
-            Reg("Alt+D4", "cmd remove crmid", () => botCmd("cmd remove crmid"));
-            Reg("Alt+D5", "cmd forcing", () => botCmd("cmd forcing"));
-            Reg("Alt+D6", "cmd timer set 6", () => botCmd("cmd timer set 6"));
-            Reg("Alt+Shift+D6", "cmd timer dismiss", () => botCmd("cmd timer dismiss"));
+            RegBot("Alt+D1", "cmd newtask", "cmd newtask");
+            RegBot("Alt+D2", "cmd add crmid", "cmd add crmid");
+            RegBot("Alt+D3", "cmd add user", "cmd add user");
+            RegBot("Alt+D4", "cmd remove crmid", "cmd remove crmid");
+            RegBot("Alt+D5", "cmd forcing", "cmd forcing");
+            RegBot("Alt+D6", "cmd timer set 6", "cmd timer set 6");
+            RegBot("Alt+Shift+D6", "cmd timer dismiss", "cmd timer dismiss");
             
             // Dynamic Date
-            Reg("Alt+D7", "cmd timer delay", () => botCmd($"cmd timer delay {DateTime.Now:dd.MM.yyyy HH:mm}"));
+            Reg("Alt+D7", "cmd timer delay", () => botCmd($"cmd timer delay {DateTime.Now:dd.MM.yyyy HH:mm}"), "cmd timer delay [ТекущаяДата Время]");
             
             Action openCrmDialog = () => 
             {
@@ -180,59 +186,57 @@ namespace iikoServiceHelper
                 }
             };
 
-            Reg("Alt+D8", "cmd duplicate", () => botCmd("cmd duplicate"));
-            Reg("Alt+Shift+D8", "cmd duplicate (список)", openCrmDialog);
-            Reg("Alt+D9", "cmd request info", () => botCmd("cmd request info"));
+            RegBot("Alt+D8", "cmd duplicate", "cmd duplicate");
+            Reg("Alt+Shift+D8", "cmd duplicate (список)", openCrmDialog, "Открыть диалог ввода списка ID для дубликатов");
+            RegBot("Alt+D9", "cmd request info", "cmd request info");
 
             // --- QUICK REPLIES ---
             // Logic: Type Text -> Enter
             
-            Action<string> reply = (text) => ExecuteReply(text);
+            RegReply("Alt+NumPad1", "Добрый день!", "Добрый день!");
+            RegReply("Alt+L",    "Добрый день!", "Добрый день!");
 
-            Reg("Alt+NumPad1", "Добрый день!", () => reply("Добрый день!"));
-            Reg("Alt+L",    "Добрый день!", () => reply("Добрый день!"));
+            RegReply("Alt+NumPad2", "У Вас остались вопросы по данному обращению?", "У Вас остались вопросы по данному обращению?");
+            RegReply("Alt+D",    "У Вас остались вопросы по данному обращению?", "У Вас остались вопросы по данному обращению?");
 
-            Reg("Alt+NumPad2", "У Вас остались вопросы по данному обращению?", () => reply("У Вас остались вопросы по данному обращению?"));
-            Reg("Alt+D",    "У Вас остались вопросы по данному обращению?", () => reply("У Вас остались вопросы по данному обращению?"));
+            RegReply("Alt+NumPad3", "Ожидайте от нас обратную связь.", "Ожидайте от нас обратную связь.");
+            RegReply("Alt+J",    "Ожидайте от нас обратную связь.", "Ожидайте от нас обратную связь.");
 
-            Reg("Alt+NumPad3", "Ожидайте от нас обратную связь.", () => reply("Ожидайте от нас обратную связь."));
-            Reg("Alt+J",    "Ожидайте от нас обратную связь.", () => reply("Ожидайте от нас обратную связь."));
+            RegReply("Alt+NumPad4", "Заявку закрываем, нет ОС.", "Заявку закрываем, так как не получили от Вас обратную связь.");
+            RegReply("Alt+P",    "Заявку закрываем, нет ОС.", "Заявку закрываем, так как не получили от Вас обратную связь.");
 
-            Reg("Alt+NumPad4", "Заявку закрываем, нет ОС.", () => reply("Заявку закрываем, так как не получили от Вас обратную связь."));
-            Reg("Alt+P",    "Заявку закрываем, нет ОС.", () => reply("Заявку закрываем, так как не получили от Вас обратную связь."));
+            RegReply("Alt+NumPad5", "Ваша заявка передана специалисту.", "Ваша заявка передана специалисту.\nОтветственный специалист свяжется с Вами в ближайшее время.");
+            RegReply("Alt+G",    "Ваша заявка передана специалисту.", "Ваша заявка передана специалисту.\nОтветственный специалист свяжется с Вами в ближайшее время.");
 
-            Reg("Alt+NumPad5", "Ваша заявка передана специалисту.", () => reply("Ваша заявка передана специалисту.\nОтветственный специалист свяжется с Вами в ближайшее время."));
-            Reg("Alt+G",    "Ваша заявка передана специалисту.", () => reply("Ваша заявка передана специалисту.\nОтветственный специалист свяжется с Вами в ближайшее время."));
+            RegReply("Alt+NumPad6", "Не удалось связаться с Вами по номеру:", "Не удалось связаться с Вами по номеру:\nПодскажите, когда с Вами можно будет связаться?");
+            RegReply("Alt+H",    "Не удалось связаться с Вами по номеру:", "Не удалось связаться с Вами по номеру:\nПодскажите, когда с Вами можно будет связаться?");
 
-            Reg("Alt+NumPad6", "Не удалось связаться с Вами по номеру:", () => reply("Не удалось связаться с Вами по номеру:\nПодскажите, когда с Вами можно будет связаться?"));
-            Reg("Alt+H",    "Не удалось связаться с Вами по номеру:", () => reply("Не удалось связаться с Вами по номеру:\nПодскажите, когда с Вами можно будет связаться?"));
+            RegReply("Alt+NumPad7", "Организация определилась верно: ?", "Организация определилась верно: ?");
+            RegReply("Alt+E",    "Организация определилась верно: ?", "Организация определилась верно: ?");
 
-            Reg("Alt+NumPad7", "Организация определилась верно: ?", () => reply("Организация определилась верно: ?"));
-            Reg("Alt+E",    "Организация определилась верно: ?", () => reply("Организация определилась верно: ?"));
+            RegReply("Alt+NumPad8", "Ваше обращение взято в работу.", "Ваше обращение взято в работу.");
+            RegReply("Alt+M",    "Ваше обращение взято в работу.", "Ваше обращение взято в работу.");
 
-            Reg("Alt+NumPad8", "Ваше обращение взято в работу.", () => reply("Ваше обращение взято в работу."));
-            Reg("Alt+M",    "Ваше обращение взято в работу.", () => reply("Ваше обращение взято в работу."));
+            RegReply("Alt+NumPad9", "Подскажите пожалуйста Ваш контактный номер телефона.", "Подскажите пожалуйста Ваш контактный номер телефона.\nЭто необходимо для регистрации Вашего обращения.");
+            RegReply("Alt+N",    "Подскажите пожалуйста Ваш контактный номер телефона.", "Подскажите пожалуйста Ваш контактный номер телефона.\nЭто необходимо для регистрации Вашего обращения.");
 
-            Reg("Alt+NumPad9", "Подскажите пожалуйста Ваш контактный номер телефона.", () => reply("Подскажите пожалуйста Ваш контактный номер телефона.\nЭто необходимо для регистрации Вашего обращения."));
-            Reg("Alt+N",    "Подскажите пожалуйста Ваш контактный номер телефона.", () => reply("Подскажите пожалуйста Ваш контактный номер телефона.\nЭто необходимо для регистрации Вашего обращения."));
+            RegReply("Alt+Multiply", "Уточняем информацию по Вашему вопросу.", "Уточняем информацию по Вашему вопросу.");
+            RegReply("Alt+X",    "Уточняем информацию по Вашему вопросу.", "Уточняем информацию по Вашему вопросу.");
 
-            Reg("Alt+Multiply", "Уточняем информацию по Вашему вопросу.", () => reply("Уточняем информацию по Вашему вопросу."));
-            Reg("Alt+X",    "Уточняем информацию по Вашему вопросу.", () => reply("Уточняем информацию по Вашему вопросу."));
+            RegReply("Alt+Add", "Чем могу Вам помочь?", "Чем могу Вам помочь?");
+            RegReply("Alt+F",    "Чем могу Вам помочь?", "Чем могу Вам помочь?");
 
-            Reg("Alt+Add", "Чем могу Вам помочь?", () => reply("Чем могу Вам помочь?"));
-            Reg("Alt+F",    "Чем могу Вам помочь?", () => reply("Чем могу Вам помочь?"));
+            RegReply("Alt+Z", "Закрываем (выполнена)", "Заявку закрываем как выполненную.\nСпасибо за обращение в iikoService и хорошего Вам дня.\nЕсли возникнут трудности или дополнительные вопросы, просим обратиться к нам повторно.");
 
-            Reg("Alt+Z", "Закрываем (выполнена)", () => reply("Заявку закрываем как выполненную.\nСпасибо за обращение в iikoService и хорошего Вам дня.\nЕсли возникнут трудности или дополнительные вопросы, просим обратиться к нам повторно."));
+            RegReply("Alt+Shift+Z", "От вас не поступила обратная связь.", "От вас не поступила обратная связь.\nСпасибо за обращение в iikoService и хорошего Вам дня.\nЕсли возникнут трудности или дополнительные вопросы, просим обратиться к нам повторно.\nЗаявку закрываем.");
 
-            Reg("Alt+Shift+Z", "От вас не поступила обратная связь.", () => reply("От вас не поступила обратная связь.\nСпасибо за обращение в iikoService и хорошего Вам дня.\nЕсли возникнут трудности или дополнительные вопросы, просим обратиться к нам повторно.\nЗаявку закрываем."));
+            RegReply("Alt+B", "Закрываем (нет вопросов)", "В связи с тем, что дополнительных вопросов от вас не поступало, данное обращение закрываем.\nЕсли у вас остались вопросы, при создании новой заявки, просим указать номер текущей.\nСпасибо за обращение в iikoService и хорошего Вам дня!");
 
-            Reg("Alt+B", "Закрываем (нет вопросов)", () => reply("В связи с тем, что дополнительных вопросов от вас не поступало, данное обращение закрываем.\nЕсли у вас остались вопросы, при создании новой заявки, просим указать номер текущей.\nСпасибо за обращение в iikoService и хорошего Вам дня!"));
-
-            Reg("Alt+Divide", "Сообщить о платных работах", () => reply("Добрый день, вы обратились в техническую поддержку iikoService.  \nК сожалению, с Вашей организацией не заключен договор технической поддержки.\nРаботы могут быть выполнены только на платной основе.\n\nСтоимость работ: руб.\nВы согласны на платные работы?"));
+            RegReply("Alt+Divide", "Сообщить о платных работах", "Добрый день, вы обратились в техническую поддержку iikoService.  \nК сожалению, с Вашей организацией не заключен договор технической поддержки.\nРаботы могут быть выполнены только на платной основе.\n\nСтоимость работ: руб.\nВы согласны на платные работы?");
             
-            Reg("Alt+Space", "Исправить раскладку (выделенное)", () => FixLayout());
+            Reg("Alt+Space", "Исправить раскладку (выделенное)", () => FixLayout(), "Исправление раскладки выделенного текста (или последнего слова)");
             
-            Reg("Alt+Q", "Очистить очередь", ClearCommandQueue);
+            Reg("Alt+Q", "Очистить очередь", ClearCommandQueue, "Принудительная очистка очереди команд");
             
             foreach (var desc in descOrder)
             {
@@ -241,7 +245,8 @@ namespace iikoServiceHelper
                 _displayItems.Add(new HotkeyDisplay 
                 { 
                     Keys = string.Join(" / ", formattedKeys), 
-                    Desc = desc 
+                    Desc = desc,
+                    FullCommand = descDetails.ContainsKey(desc) ? descDetails[desc] : desc
                 });
             }
         }
@@ -1509,6 +1514,7 @@ namespace iikoServiceHelper
     {
         public string Keys { get; set; } = "";
         public string Desc { get; set; } = "";
+        public string FullCommand { get; set; } = "";
     }
 
     public class AppSettings
