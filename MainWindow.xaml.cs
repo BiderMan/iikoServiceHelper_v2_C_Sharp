@@ -957,6 +957,15 @@ namespace iikoServiceHelper
                         txtNotes.FontSize = settings.NotesFontSize;
                         txtCrmLogin.Text = settings.CrmLogin;
                         txtCrmPassword.Password = settings.CrmPassword;
+
+                        // Restore Window Position
+                        this.Top = settings.WindowTop;
+                        this.Left = settings.WindowLeft;
+                        this.Width = settings.WindowWidth;
+                        this.Height = settings.WindowHeight;
+                        
+                        if (settings.WindowState == (int)WindowState.Maximized)
+                            this.WindowState = WindowState.Maximized;
                     }
                 }
             }
@@ -967,11 +976,20 @@ namespace iikoServiceHelper
         {
             try
             {
+                // Handle Minimized state by saving as Normal
+                var stateToSave = this.WindowState == WindowState.Minimized ? WindowState.Normal : this.WindowState;
+
                 var settings = new AppSettings 
                 { 
                     NotesFontSize = txtNotes.FontSize,
                     CrmLogin = txtCrmLogin.Text,
-                    CrmPassword = txtCrmPassword.Password
+                    CrmPassword = txtCrmPassword.Password,
+                    
+                    WindowTop = this.WindowState == WindowState.Normal ? this.Top : this.RestoreBounds.Top,
+                    WindowLeft = this.WindowState == WindowState.Normal ? this.Left : this.RestoreBounds.Left,
+                    WindowWidth = this.WindowState == WindowState.Normal ? this.Width : this.RestoreBounds.Width,
+                    WindowHeight = this.WindowState == WindowState.Normal ? this.Height : this.RestoreBounds.Height,
+                    WindowState = (int)stateToSave
                 };
                 var json = JsonSerializer.Serialize(settings);
                 File.WriteAllText(SettingsFile, json);
@@ -1522,6 +1540,11 @@ namespace iikoServiceHelper
         public double NotesFontSize { get; set; } = 14;
         public string CrmLogin { get; set; } = "";
         public string CrmPassword { get; set; } = "";
+        public double WindowTop { get; set; } = 100;
+        public double WindowLeft { get; set; } = 100;
+        public double WindowWidth { get; set; } = 950;
+        public double WindowHeight { get; set; } = 600;
+        public int WindowState { get; set; } = 0;
     }
 
     public class BrowserItem
