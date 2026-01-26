@@ -48,7 +48,7 @@ namespace iikoServiceHelper
 
         private DispatcherTimer _crmTimer;
         private bool _isCrmActive = false;
-        private Process? _browserProcess; // Храним ссылку на процесс браузера
+        private CancellationTokenSource? _crmCts;
 
         public MainWindow()
         {
@@ -422,7 +422,7 @@ namespace iikoServiceHelper
                 _commandQueue.Clear();
             }
 
-            Log($"Очередь команд принудительно очищена (удалено {clearedCount}, прервано текущее).");
+            LogDetailed($"Очередь команд принудительно очищена (удалено {clearedCount}, прервано текущее).");
             Dispatcher.Invoke(() =>
             {
                 _overlay.ShowMessage("Очередь очищена");
@@ -720,6 +720,45 @@ namespace iikoServiceHelper
             }
         }
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        private void MoveExplorerTo(int x, int y)
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    IntPtr hWnd = IntPtr.Zero;
+                    for (int i = 0; i < 10; i++)
+                    {
+                        await Task.Delay(200);
+                        IntPtr fg = GetForegroundWindow();
+                        GetWindowThreadProcessId(fg, out uint pid);
+                        try
+                        {
+                            var p = Process.GetProcessById((int)pid);
+                            if (p.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase))
+                            {
+                                hWnd = fg;
+                                break;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (hWnd != IntPtr.Zero) SetWindowPos(hWnd, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004);
+                }
+                catch { }
+            });
+        }
+
         private void OpenFtp_Click(object sender, RoutedEventArgs e)
         {
             string path = @"\\files.resto.lan\";
@@ -732,21 +771,26 @@ namespace iikoServiceHelper
                 return;
             }
 
+            int targetX = (int)this.Left + 30;
+            int targetY = (int)this.Top + 30;
+            if (this.WindowState == WindowState.Maximized)
+            {
+                targetX = 50; targetY = 50;
+            }
+
             Task.Run(() =>
             {
                 try
                 {
-                    // Используем cmdkey для сохранения учетных данных в Windows (Credential Manager)
-                    // Это позволяет Проводнику автоматически подхватить пароль при открытии папки
-                    string target = "files.resto.lan";
-
-                    var pDel = Process.Start(new ProcessStartInfo("cmdkey", $"/delete:{target}") { CreateNoWindow = true, UseShellExecute = false });
+                    // Выполняем net use для подключения (сначала удаляем старое, затем создаем новое)
+                    var pDel = Process.Start(new ProcessStartInfo("net", @"use \\files.resto.lan /delete /y") { CreateNoWindow = true, UseShellExecute = false });
                     pDel?.WaitForExit();
 
-                    var pAdd = Process.Start(new ProcessStartInfo("cmdkey", $"/add:{target} /user:{user} /pass:\"{pass}\"") { CreateNoWindow = true, UseShellExecute = false });
-                    pAdd?.WaitForExit();
+                    var pUse = Process.Start(new ProcessStartInfo("net", $@"use \\files.resto.lan /user:{user} {pass} /persistent:yes") { CreateNoWindow = true, UseShellExecute = false });
+                    pUse?.WaitForExit();
 
                     Process.Start(new ProcessStartInfo("explorer.exe", path) { UseShellExecute = true });
+                    MoveExplorerTo(targetX, targetY);
                 }
                 catch (Exception ex) { Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Ошибка: {ex.Message}")); }
             });
@@ -758,7 +802,14 @@ namespace iikoServiceHelper
             {
                 if (Directory.Exists(AppDir))
                 {
+                    int targetX = (int)this.Left + 30;
+                    int targetY = (int)this.Top + 30;
+                    if (this.WindowState == WindowState.Maximized)
+                    {
+                        targetX = 50; targetY = 50;
+                    }
                     Process.Start(new ProcessStartInfo("explorer.exe", AppDir) { UseShellExecute = true });
+                    MoveExplorerTo(targetX, targetY);
                 }
             }
             catch (Exception ex) { MessageBox.Show($"Ошибка: {ex.Message}"); }
@@ -827,17 +878,27 @@ namespace iikoServiceHelper
 
         private void CmbBrowsers_DropDownOpened(object sender, EventArgs e)
         {
-            var targetBrowsers = new[] { "msedge", "chrome", "browser", "vivaldi" };
+            var selectedPath = cmbBrowsers.SelectedValue as string;
+            var targetBrowsers = new[] { "msedge", "chrome", "browser", "vivaldi", "opera", "brave", "chromium" };
             var foundBrowsers = new List<BrowserItem>();
+
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
 
             // 1. Ищем по стандартным путям (даже если не запущены)
             var commonPaths = new List<(string Name, string Path)>
             {
-                ("Edge", @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-                ("Edge", @"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
-                ("Chrome", @"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-                ("Chrome", @"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
-                ("Yandex", @"C:\Users\" + Environment.UserName + @"\AppData\Local\Yandex\YandexBrowser\Application\browser.exe")
+                ("Edge", Path.Combine(programFilesX86, @"Microsoft\Edge\Application\msedge.exe")),
+                ("Edge", Path.Combine(programFiles, @"Microsoft\Edge\Application\msedge.exe")),
+                ("Chrome", Path.Combine(programFiles, @"Google\Chrome\Application\chrome.exe")),
+                ("Chrome", Path.Combine(programFilesX86, @"Google\Chrome\Application\chrome.exe")),
+                ("Yandex", Path.Combine(localAppData, @"Yandex\YandexBrowser\Application\browser.exe")),
+                ("Vivaldi", Path.Combine(localAppData, @"Vivaldi\Application\vivaldi.exe")),
+                ("Brave", Path.Combine(programFiles, @"BraveSoftware\Brave-Browser\Application\brave.exe")),
+                ("Opera", Path.Combine(localAppData, @"Programs\Opera\launcher.exe")),
+                ("Opera GX", Path.Combine(localAppData, @"Programs\Opera GX\launcher.exe")),
+                ("Chromium", Path.Combine(localAppData, @"Chromium\Application\chrome.exe"))
             };
 
             foreach (var item in commonPaths)
@@ -864,12 +925,15 @@ namespace iikoServiceHelper
                             string? path = p.MainModule.FileName;
                             if (string.IsNullOrEmpty(path)) continue;
 
-                            string name = procName switch
+                            string name = procName.ToLower() switch
                             {
                                 "msedge" => "Edge",
                                 "chrome" => "Chrome",
                                 "browser" => "Yandex",
                                 "vivaldi" => "Vivaldi",
+                                "opera" => "Opera",
+                                "brave" => "Brave",
+                                "chromium" => "Chromium",
                                 _ => procName
                             };
 
@@ -885,7 +949,10 @@ namespace iikoServiceHelper
             }
 
             cmbBrowsers.ItemsSource = foundBrowsers;
-            if (foundBrowsers.Count > 0 && cmbBrowsers.SelectedIndex == -1)
+            
+            if (selectedPath != null && foundBrowsers.Any(b => b.Path == selectedPath))
+                cmbBrowsers.SelectedValue = selectedPath;
+            else if (foundBrowsers.Count > 0)
                 cmbBrowsers.SelectedIndex = 0;
         }
 
@@ -895,6 +962,7 @@ namespace iikoServiceHelper
             {
                 _isCrmActive = false;
                 _crmTimer.Stop();
+                _crmCts?.Cancel();
                 btnCrmAutoLogin.Content = "ВКЛЮЧИТЬ";
                 txtCrmStatus.Text = "Статус: Отключено";
                 txtCrmStatus.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gray);
@@ -914,31 +982,24 @@ namespace iikoServiceHelper
                     return;
                 }
 
-                // Проверка: Запущен ли браузер без порта отладки?
-                var selectedBrowser = cmbBrowsers.SelectedItem as BrowserItem;
-                if (selectedBrowser != null)
-                {
-                    string procName = System.IO.Path.GetFileNameWithoutExtension(selectedBrowser.Path);
-                    bool isRunning = Process.GetProcessesByName(procName).Any();
-                    bool cdpAvailable = false;
-                    try 
-                    { 
-                        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-                        await http.GetStringAsync("http://127.0.0.1:9222/json"); 
-                        cdpAvailable = true; 
-                    } catch { }
+                // Проверка: Доступен ли порт отладки?
+                bool cdpAvailable = false;
+                try 
+                { 
+                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+                    await http.GetStringAsync("http://127.0.0.1:9222/json"); 
+                    cdpAvailable = true; 
+                } catch { }
 
-                    if (isRunning && !cdpAvailable)
-                    {
-                        // Автоматический перезапуск для открытия порта, как требовалось
-                        Log($"Браузер {selectedBrowser.Name} запущен без порта. Перезапуск...");
-                        foreach (var p in Process.GetProcessesByName(procName)) { try { p.Kill(); } catch { } }
-                        await Task.Delay(2000);
-                    }
+                if (!cdpAvailable)
+                {
+                    MessageBox.Show("Порт 9222 закрыт.\nТребуется запуск браузера с параметром \"--remote-debugging-port=9222\"", "Внимание", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
                 }
 
                 _isCrmActive = true;
                 
+                _crmCts = new CancellationTokenSource();
                 CrmTimer_Tick(null, null); // Запуск сразу
                 _crmTimer.Start();
                 btnCrmAutoLogin.Content = "СТОП";
@@ -948,228 +1009,333 @@ namespace iikoServiceHelper
             }
         }
 
-        private void CrmTimer_Tick(object? sender, EventArgs? e)
+        private void BtnCrmSettings_Click(object sender, RoutedEventArgs e)
         {
-            Log("Таймер сработал: Выполнение авто-входа...");
-            txtLastRun.Text = $"Последний запуск: {DateTime.Now:HH:mm}";
-            RunBackgroundLogin();
+            var win = new Window
+            {
+                Title = "Настройка авто-входа",
+                Width = 400,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1E1E24")),
+                Foreground = System.Windows.Media.Brushes.White
+            };
+
+            var stack = new StackPanel { Margin = new Thickness(20) };
+
+            var txt = new TextBox
+            {
+                Text = "Для работы Авто-входа в CRM зайти в свойства ярлыка браузера и в поле Объект , после \"\" через пробел добавить --remote-debugging-port=9222",
+                TextWrapping = TextWrapping.Wrap,
+                IsReadOnly = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                Foreground = System.Windows.Media.Brushes.White,
+                BorderThickness = new Thickness(0),
+                FontSize = 14,
+                FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+
+            var btnClose = new Button
+            {
+                Content = "Закрыть",
+                Width = 100,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = (System.Windows.Media.Brush)FindResource("BrushAccent"),
+                BorderBrush = (System.Windows.Media.Brush)FindResource("BrushAccent"),
+                Background = System.Windows.Media.Brushes.Transparent
+            };
+            btnClose.Click += (s, args) => win.Close();
+
+            stack.Children.Add(txt);
+            stack.Children.Add(btnClose);
+            win.Content = stack;
+
+            win.ShowDialog();
         }
 
-        private async void RunBackgroundLogin()
+        private void CrmTimer_Tick(object? sender, EventArgs? e)
+        {
+            if (_crmCts == null || _crmCts.IsCancellationRequested) return;
+            Log("Таймер сработал: Выполнение авто-входа...");
+            txtLastRun.Text = $"Последний запуск: {DateTime.Now:HH:mm}";
+            RunBackgroundLogin(_crmCts.Token);
+        }
+
+        private async void RunBackgroundLogin(CancellationToken token)
         {
             try
             {
+                string login = txtCrmLogin.Text;
+                string password = txtCrmPassword.Password;
                 var selectedBrowser = cmbBrowsers.SelectedItem as BrowserItem;
-                string? browserPath = selectedBrowser?.Path;
-                string browserName = selectedBrowser?.Name ?? "Unknown";
 
-                if (!string.IsNullOrEmpty(browserPath) && File.Exists(browserPath))
+                if (string.IsNullOrWhiteSpace(login) || string.IsNullOrWhiteSpace(password))
                 {
-                    using var http = new HttpClient();
-                    http.Timeout = TimeSpan.FromSeconds(2);
+                    Log("Ошибка: Логин или пароль не заполнены.");
+                    return;
+                }
 
-                    int port = 9222;
-                    bool cdpAvailable = false;
+                Log("=== START CRM AUTO-LOGIN ===");
+                Log("Запуск авто-входа CRM...");
 
-                    // 1. Проверяем, доступен ли уже порт отладки (CDP)
-                    try 
+                using var http = new HttpClient();
+                
+                // 1. Проверка порта 9222
+                Log("Checking port 9222...");
+                string versionJson = "";
+                try
+                {
+                    versionJson = await http.GetStringAsync("http://127.0.0.1:9222/json/version", token);
+                    Log("Port 9222 is open.");
+                }
+                catch
+                {
+                    Log("Порт 9222 закрыт. Авто-вход отключен.");
+                    Log("Требуется запуск браузера с параметром --remote-debugging-port=9222");
+
+                    _isCrmActive = false;
+                    _crmTimer.Stop();
+                    _crmCts?.Cancel();
+                    btnCrmAutoLogin.Content = "ВКЛЮЧИТЬ";
+                    txtCrmStatus.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gray);
+                    return;
+                }
+
+                // Проверка соответствия браузера
+                if (selectedBrowser != null)
+                {
+                    try
                     {
-                        await http.GetStringAsync($"http://127.0.0.1:{port}/json");
-                        cdpAvailable = true;
-                    }
-                    catch { }
-
-                    if (cdpAvailable)
-                    {
-                        Log("Порт активен. Выполнение скрипта без открытия вкладок...");
-                    }
-                    else
-                    {
-                        Log($"Порт закрыт. Запуск браузера с открытым портом...");
-                        
-                        string args = $"--remote-debugging-port={port} --no-first-run --no-default-browser-check \"http://crm.iiko.ru/\"";
-                        var psi = new ProcessStartInfo(browserPath) 
-                        { 
-                            Arguments = args, 
-                            UseShellExecute = true, 
-                            WindowStyle = ProcessWindowStyle.Normal 
-                        };
-                        _browserProcess = Process.Start(psi);
-                        await Task.Delay(5000);
-                    }
-
-                    // 1. Выполняем вход через HTTP (без браузера)
-                    Log("Выполнение HTTP-входа...");
-                    var cookies = await PerformHttpLogin(txtCrmLogin.Text, txtCrmPassword.Password);
-                    
-                    if (cookies != null && cookies.Count > 0)
-                    {
-                        Log($"Получено куки: {cookies.Count}. Внедрение в браузер...");
-
-                        // 2. Подключаемся к браузеру (любая страница подойдет, нам нужен только Network домен)
-                        // Ищем любую страницу для подключения WebSocket
-                        string json = await http.GetStringAsync($"http://127.0.0.1:{port}/json");
-                        string? wsUrl = null;
-                        using (var doc = JsonDocument.Parse(json))
+                        using var doc = JsonDocument.Parse(versionJson);
+                        if (doc.RootElement.TryGetProperty("Browser", out var browserEl))
                         {
-                            foreach (var el in doc.RootElement.EnumerateArray())
+                            string remoteBrowser = browserEl.GetString() ?? "";
+                            Log($"Connected to: {remoteBrowser}");
+
+                            if (selectedBrowser.Name.Equals("Chrome", StringComparison.OrdinalIgnoreCase) && 
+                                remoteBrowser.Contains("Edg", StringComparison.OrdinalIgnoreCase))
                             {
-                                if (el.TryGetProperty("webSocketDebuggerUrl", out var val))
-                                {
-                                    wsUrl = val.GetString();
-                                    break;
-                                }
+                                Log("WARN: Выбран Chrome, но порт 9222 занят Edge.");
                             }
                         }
-
-                        if (string.IsNullOrEmpty(wsUrl))
-                        {
-                            Log("Ошибка: Не удалось подключиться к CDP (нет доступных таргетов).");
-                            return;
-                        }
-
-                        using var ws = new ClientWebSocket();
-                        await ws.ConnectAsync(new Uri(wsUrl), CancellationToken.None);
-                        
-                        // 3. Внедряем куки через Network.setCookie
-                        foreach (Cookie cookie in cookies)
-                        {
-                            var cookieCmd = new 
-                            { 
-                                id = new Random().Next(1000, 9999), 
-                                method = "Network.setCookie", 
-                                @params = new 
-                                { 
-                                    name = cookie.Name, 
-                                    value = cookie.Value, 
-                                    domain = "crm.iiko.ru", // Принудительно ставим домен
-                                    path = "/",
-                                    expires = (long)(DateTime.UtcNow.AddYears(1) - new DateTime(1970, 1, 1)).TotalSeconds
-                                } 
-                            };
-                            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cookieCmd));
-                            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-                        }
-
-                        txtCrmStatus.Text = $"Успешный вход: {DateTime.Now:HH:mm}";
-                        Log("Куки успешно внедрены в браузер.");
                     }
-                    else
+                    catch { }
+                }
+
+                // 2. Создание новой вкладки
+                Log("Creating new tab (http://crm.iiko.ru/)...");
+                string tabId = "";
+                string wsUrl = "";
+
+                try
+                {
+                    // Попытка создать вкладку в фоне (background: true) через Browser Target
+                    try 
                     {
-                        txtCrmStatus.Text = "Ошибка входа";
-                        Log("Не удалось выполнить вход через HTTP.");
+                        string bgVersionJson = await http.GetStringAsync("http://127.0.0.1:9222/json/version", token);
+                        string browserWsUrl = "";
+                        using (var doc = JsonDocument.Parse(bgVersionJson))
+                        {
+                            if (doc.RootElement.TryGetProperty("webSocketDebuggerUrl", out var wsEl)) 
+                                browserWsUrl = wsEl.GetString() ?? "";
+                        }
+
+                        if (!string.IsNullOrEmpty(browserWsUrl))
+                        {
+                            using var wsBrowser = new ClientWebSocket();
+                            await wsBrowser.ConnectAsync(new Uri(browserWsUrl), token);
+                            
+                            var createCmd = new { id = 1, method = "Target.createTarget", @params = new { url = "http://crm.iiko.ru/", background = true } };
+                            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(createCmd));
+                            await wsBrowser.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+                            
+                            var buffer = new byte[4096];
+                            var res = await wsBrowser.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                            string responseJson = Encoding.UTF8.GetString(buffer, 0, res.Count);
+                            
+                            using var docResp = JsonDocument.Parse(responseJson);
+                            if (docResp.RootElement.TryGetProperty("result", out var resEl) && resEl.TryGetProperty("targetId", out var tidEl))
+                            {
+                                tabId = tidEl.GetString() ?? "";
+                            }
+                        }
                     }
+                    catch { /* Fallback */ }
+
+                    // Если не вышло (или старый метод), пробуем стандартный /json/new (активная вкладка)
+                    if (string.IsNullOrEmpty(tabId))
+                    {
+                        var response = await http.PutAsync("http://127.0.0.1:9222/json/new?http://crm.iiko.ru/", null, token);
+                        string json = await response.Content.ReadAsStringAsync();
+                        using var doc = JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("id", out var idEl)) tabId = idEl.GetString() ?? "";
+                        if (doc.RootElement.TryGetProperty("webSocketDebuggerUrl", out var wsEl)) wsUrl = wsEl.GetString() ?? "";
+                    }
+
+                    // Если создали через Browser Target, нужно найти WS URL вкладки
+                    if (!string.IsNullOrEmpty(tabId) && string.IsNullOrEmpty(wsUrl))
+                    {
+                        string jsonTargets = await http.GetStringAsync("http://127.0.0.1:9222/json", token);
+                        using var docTargets = JsonDocument.Parse(jsonTargets);
+                        foreach (var el in docTargets.RootElement.EnumerateArray())
+                        {
+                            if (el.TryGetProperty("id", out var id) && id.GetString() == tabId)
+                            {
+                                if (el.TryGetProperty("webSocketDebuggerUrl", out var val)) wsUrl = val.GetString() ?? "";
+                                break;
+                            }
+                        }
+                    }
+
+                    Log($"Tab created. ID: {tabId}, WS: {wsUrl}");
+                }
+                catch (Exception ex)
+                {
+                    Log($"Ошибка создания вкладки: {ex.Message}");
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(wsUrl))
+                {
+                    Log("Не удалось получить WebSocket URL.");
+                    Log("WebSocket URL is empty.");
+                    return;
+                }
+
+                // 3. Подключение WebSocket
+                Log($"Connecting WebSocket...");
+                using var ws = new ClientWebSocket();
+                await ws.ConnectAsync(new Uri(wsUrl), token);
+                Log("WebSocket connected.");
+
+                // Локальная функция для выполнения JS
+                async Task<string> Eval(string js)
+                {
+                    try
+                    {
+                        var reqId = new Random().Next(10000, 99999);
+                        var cmd = new
+                        {
+                            id = reqId,
+                            method = "Runtime.evaluate",
+                            @params = new { expression = js, returnByValue = true }
+                        };
+                        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cmd));
+                        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+
+                        var buffer = new byte[8192];
+                        var sb = new StringBuilder();
+                        var start = DateTime.Now;
+
+                        while ((DateTime.Now - start).TotalSeconds < 5 && ws.State == WebSocketState.Open)
+                        {
+                            var res = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                            sb.Append(Encoding.UTF8.GetString(buffer, 0, res.Count));
+                            if (res.EndOfMessage)
+                            {
+                                var respText = sb.ToString();
+                                if (respText.Contains($"\"id\":{reqId}")) return respText;
+                                sb.Clear();
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex) { Log($"Eval Error: {ex.Message}"); }
+                    return "";
+                }
+
+                // 4. Ожидание загрузки
+                Log("Waiting for page load (3s)...");
+                await Task.Delay(3000, token);
+
+                // 5. Проверка статуса входа
+                Log("Checking login status...");
+                string checkJs = "document.querySelector('a[href*=\"action=Logout\"]') !== null";
+                string resp = await Eval(checkJs);
+
+                if (resp.Contains("\"value\":true"))
+                {
+                    Log("Уже авторизован.");
+                    Log("Already logged in.");
+                    txtCrmStatus.Text = $"Вход ОК: {DateTime.Now:HH:mm}";
                 }
                 else
                 {
-                    _isCrmActive = false;
-                    _crmTimer.Stop();
-                    btnCrmAutoLogin.Content = "ВКЛЮЧИТЬ";
-                    MessageBox.Show("Браузер не найден. Авто-вход остановлен.");
-                    Log("Ошибка: Браузер не найден.");
+                    Log("Not logged in. Attempting to login...");
+
+                    // Ввод данных
+                    Log($"Filling form. Login: {login}");
+                    string fillJs = $"var u = document.querySelector('input[name=\"user_name\"]'); if(u) u.value = '{login}'; " +
+                                    $"var p = document.querySelector('input[name=\"user_password\"]'); if(p) p.value = '{password}';";
+                    await Eval(fillJs);
+
+                    // Нажатие кнопки
+                    Log("Clicking Login button...");
+                    string clickJs = "var btn = document.querySelector('input[name=\"Login\"]'); if(btn) btn.click();";
+                    await Eval(clickJs);
+
+                    // Ожидание
+                    Log("Waiting for login (5s)...");
+                    await Task.Delay(5000, token);
+
+                    // Повторная проверка
+                    Log("Checking login status again...");
+                    resp = await Eval(checkJs);
+                    if (resp.Contains("\"value\":true"))
+                    {
+                        Log("Авто-вход выполнен успешно.");
+                        Log("Login successful.");
+                        txtCrmStatus.Text = $"Вход ОК: {DateTime.Now:HH:mm}";
+                    }
+                    else
+                    {
+                        Log("Не удалось выполнить вход (проверка не прошла).");
+                        Log("Login failed (Logout button not found).");
+                        txtCrmStatus.Text = "Ошибка входа";
+                    }
                 }
+
+                // 6. Закрытие вкладки
+                Log($"Closing tab {tabId}...");
+                try
+                {
+                    await http.GetStringAsync($"http://127.0.0.1:9222/json/close/{tabId}", token);
+                    Log("Tab closed.");
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error closing tab: {ex.Message}");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                Log("Авто-вход прерван пользователем.");
             }
             catch (Exception ex)
             {
                 txtCrmStatus.Text = "Ошибка входа";
                 Debug.WriteLine(ex.Message);
                 Log($"КРИТИЧЕСКАЯ ОШИБКА: {ex.Message}\n{ex.StackTrace}");
+                // LogDetailed removed
             }
-            finally
-            {
-            }
+            Log("=== END CRM AUTO-LOGIN ===");
         }
 
-        private async Task<CookieCollection?> PerformHttpLogin(string login, string password)
+        private async void BtnCheckPort_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                var handler = new HttpClientHandler { CookieContainer = new CookieContainer(), UseCookies = true, AllowAutoRedirect = true };
-                using var client = new HttpClient(handler);
-                
-                // 1. Загружаем страницу для инициализации сессии
-                await client.GetAsync("http://crm.iiko.ru/");
-
-                // 2. Отправляем форму входа
-                var content = new FormUrlEncodedContent(new[]
-                {
-                    new KeyValuePair<string, string>("user_name", login),
-                    new KeyValuePair<string, string>("user_password", password),
-                    new KeyValuePair<string, string>("Login", "Login") // Эмуляция нажатия кнопки
-                });
-
-                var response = await client.PostAsync("http://crm.iiko.ru/", content);
-                
-                return handler.CookieContainer.GetCookies(new Uri("http://crm.iiko.ru/"));
-            }
-            catch (Exception ex) { Log($"HTTP Login Error: {ex.Message}"); return null; }
-        }
-
-        private void BtnShowBrowser_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                bool found = false;
-
-                // 1. Пробуем найти через сохраненный процесс
-                if (_browserProcess != null && !_browserProcess.HasExited)
-                {
-                    _browserProcess.Refresh();
-                    IntPtr handle = _browserProcess.MainWindowHandle;
-                    if (handle != IntPtr.Zero)
-                    {
-                        NativeMethods.ShowWindow(handle, NativeMethods.SW_RESTORE);
-                        NativeMethods.SetForegroundWindow(handle);
-                        Log("Команда 'Показать' отправлена окну браузера (Process).");
-                        found = true;
-                    }
-                }
-
-                // 2. Если не вышло, ищем любое окно выбранного браузера
-                if (!found)
-                {
-                    var selectedBrowser = cmbBrowsers.SelectedItem as BrowserItem;
-                    if (selectedBrowser != null)
-                    {
-                        string procName = System.IO.Path.GetFileNameWithoutExtension(selectedBrowser.Path);
-                        var procs = Process.GetProcessesByName(procName);
-                        foreach (var p in procs)
-                        {
-                            if (p.MainWindowHandle != IntPtr.Zero)
-                            {
-                                NativeMethods.ShowWindow(p.MainWindowHandle, NativeMethods.SW_RESTORE);
-                                NativeMethods.SetForegroundWindow(p.MainWindowHandle);
-                                found = true;
-                                break; // Разворачиваем первое найденное
-                            }
-                        }
-                        if (found) Log($"Команда 'Показать' отправлена окну браузера ({procName}).");
-                    }
-                }
-
-                if (!found) Log("Процесс браузера не найден или не имеет окна.");
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+                await http.GetStringAsync("http://127.0.0.1:9222/json");
+                MessageBox.Show("Порт 9222 ДОСТУПЕН.\nБраузер готов к управлению.", "Статус порта", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch
             {
-                Log("Браузер не найден или не запущен.");
+                MessageBox.Show("Порт 9222 НЕДОСТУПЕН.\nУбедитесь, что браузер запущен с флагом --remote-debugging-port=9222", "Статус порта", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-        }
-
-        private void BtnKillBrowser_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (_browserProcess != null && !_browserProcess.HasExited)
-                {
-                    _browserProcess.Kill();
-                    Log("Браузер принудительно закрыт.");
-                }
-                else
-                {
-                    Log("Нет активного процесса для закрытия.");
-                }
-            }
-            catch { }
         }
     }
 

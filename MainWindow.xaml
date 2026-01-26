@@ -349,16 +349,26 @@
              <!-- Tab 3: Tools -->
             <TabItem Header="ИНСТРУМЕНТЫ">
                 <StackPanel Margin="20">
-                     <Grid Margin="5,0,0,10">
-                         <TextBlock Text="ДОСТУПНЫЕ УТИЛИТЫ" Foreground="#666666" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                         <Button Content="FTP" Click="OpenFtp_Click" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть \\files.resto.lan\" HorizontalAlignment="Right"/>
+                     <Grid Margin="0,0,0,10">
+                         <Grid.ColumnDefinitions>
+                             <ColumnDefinition Width="Auto"/>
+                             <ColumnDefinition Width="*"/>
+                             <ColumnDefinition Width="Auto"/>
+                         </Grid.ColumnDefinitions>
+                         <StackPanel Grid.Column="0">
+                             <Button Content="OrderCheck" Click="OpenOrderCheck_Click" HorizontalAlignment="Left" Width="250" Margin="0,0,0,5"/>
+                             <Button Content="CLEAR.bat" Click="OpenClearBat_Click" HorizontalAlignment="Left" Width="250" Margin="0"/>
+                         </StackPanel>
+                         <TextBlock Grid.Column="1" Text="ДОСТУПНЫЕ УТИЛИТЫ" Foreground="#666666" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                         <StackPanel Grid.Column="2">
+                             <Button Content="FTP" Click="OpenFtp_Click" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть \\files.resto.lan\" HorizontalAlignment="Right" Margin="0,0,0,5"/>
+                             <Button Content="Открыть лог Helpera" Click="OpenLogFolder_Click" HorizontalAlignment="Right" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть папку с логами" Margin="0"/>
+                         </StackPanel>
                      </Grid>
-                     <Button Content="Открыть лог Helpera" Click="OpenLogFolder_Click" HorizontalAlignment="Right" Width="250" Height="20" FontSize="14" Padding="0" Margin="0,-5,5,0" ToolTip="Открыть папку с логами"/>
-                     <Button Content="ORDERCHECK" Click="OpenOrderCheck_Click" HorizontalAlignment="Left" Width="250"/>
-                     <Button Content="CLEAR.bat" Click="OpenClearBat_Click" HorizontalAlignment="Left" Width="250"/>
 
                      <StackPanel Orientation="Horizontal" Margin="5,20,0,10">
                          <TextBlock Text="АВТО-ВХОД CRM (30 МИН)" Foreground="#666666" FontSize="12" FontWeight="Bold"/>
+                         <TextBlock Text="Сначала тыкни Настройка!" Foreground="{StaticResource BrushAccent}" FontSize="12" Margin="10,0,0,0" FontWeight="Bold"/>
                          <TextBlock x:Name="txtLastRun" Foreground="#888888" FontSize="12" Margin="10,0,0,0"/>
                      </StackPanel>
                      
@@ -374,14 +384,14 @@
                                    DisplayMemberPath="Name" SelectedValuePath="Path"
                                    DropDownOpened="CmbBrowsers_DropDownOpened" ToolTip="Выберите активный браузер"/>
                          <Button x:Name="btnCrmAutoLogin" Content="ВКЛЮЧИТЬ" Click="BtnCrmAutoLogin_Click" Width="100"/>
+                         <Button Content="Настройка" Click="BtnCrmSettings_Click" Width="100"/>
                      </StackPanel>
                      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,10,0">
-                         <Button Content="Показать" Click="BtnShowBrowser_Click" Width="80" Height="25" FontSize="11" Padding="0" ToolTip="Развернуть окно браузера"/>
-                         <Button Content="Закрыть" Click="BtnKillBrowser_Click" Width="80" Height="25" FontSize="11" Padding="0" ToolTip="Принудительно закрыть браузер"/>
+                         <Button Content="Проверить порт" Click="BtnCheckPort_Click" Width="100" Height="25" FontSize="11" Padding="0" ToolTip="Проверить доступность порта 9222"/>
                      </StackPanel>
-                     <TextBlock x:Name="txtCrmStatus" Text="Статус: Отключено" Foreground="#555" FontSize="12" Margin="5,0,0,0"/>
+                     <TextBlock x:Name="txtCrmStatus" Text="Статус: Отключено" Foreground="#555" FontSize="12" Margin="5,-30,0,0" HorizontalAlignment="Left"/>
 
-                     <TextBlock Text="ЛОГ ДЕЙСТВИЙ CRM:" Foreground="#666666" FontSize="12" Margin="5,15,0,5" FontWeight="Bold"/>
+                     <TextBlock Text="ЛОГ ДЕЙСТВИЙ CRM:" Foreground="#666666" FontSize="12" Margin="5,0,0,5" FontWeight="Bold"/>
                      <TextBox x:Name="txtLog" Height="120" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" IsReadOnly="True" FontFamily="Consolas" FontSize="11" Background="#1E1E24" Foreground="#AAAAAA" Padding="5"/>
                 </StackPanel>
             </TabItem>
