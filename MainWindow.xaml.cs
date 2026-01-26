@@ -44,6 +44,7 @@ namespace iikoServiceHelper
         private readonly object _queueLock = new();
         private bool _isQueueRunning = false;
         private string _currentActionName = "";
+        private volatile bool _cancelCurrentAction = false;
 
         private DispatcherTimer _crmTimer;
         private bool _isCrmActive = false;
@@ -365,10 +366,15 @@ namespace iikoServiceHelper
                         UpdateOverlayMessage();
                     });
     
+                    _cancelCurrentAction = false;
                     var sw = Stopwatch.StartNew();
                     try
                     {
                         item.Act.Invoke();
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        LogDetailed($"Action canceled: {item.Name}");
                     }
                     catch (Exception ex) { LogDetailed($"Action failed: {ex.Message}"); }
                     sw.Stop();
@@ -408,24 +414,24 @@ namespace iikoServiceHelper
 
         private void ClearCommandQueue()
         {
+            _cancelCurrentAction = true;
             int clearedCount;
             lock (_queueLock)
             {
                 clearedCount = _commandQueue.Count;
-                if (clearedCount > 0)
-                {
-                    _commandQueue.Clear();
-                }
+                _commandQueue.Clear();
             }
 
-            if (clearedCount > 0)
+            Log($"Очередь команд принудительно очищена (удалено {clearedCount}, прервано текущее).");
+            Dispatcher.Invoke(() =>
             {
-                Log($"Очередь команд принудительно очищена ({clearedCount} команд).");
-                Dispatcher.Invoke(() =>
-                {
-                    _overlay.ShowMessage("Очередь очищена");
-                });
-            }
+                _overlay.ShowMessage("Очередь очищена");
+            });
+        }
+
+        private void CheckCancellation()
+        {
+            if (_cancelCurrentAction) throw new OperationCanceledException();
         }
 
         private string FormatKeyCombo(string keyCombo)
@@ -466,17 +472,20 @@ namespace iikoServiceHelper
             _hotkeyManager.IsInputBlocked = true;
             try
             {
+                CheckCancellation();
                 // 1. Prepare
                 NativeMethods.ReleaseModifiers();
                 NativeMethods.ReleaseAlphaKeys();
                 LogDetailed("Modifiers released. Sleep 100ms.");
                 Thread.Sleep(100);
+                CheckCancellation();
 
                 // 2. Type @chat_bot
                 LogDetailed("Typing '@chat_bot'...");
                 TypeText("@chat_bot");
                 LogDetailed("Sleep 100ms.");
                 Thread.Sleep(100);
+                CheckCancellation();
                 
                 // 3. Enter to select bot
                 LogDetailed("Sending Enter.");
@@ -487,13 +496,16 @@ namespace iikoServiceHelper
                 {
                     LogDetailed("Args present. Sleep 200ms.");
                     Thread.Sleep(200);
+                    CheckCancellation();
                     NativeMethods.SendKey(NativeMethods.VK_SPACE);
                     LogDetailed("Sent Space. Sleep 50ms.");
                     Thread.Sleep(50);
+                    CheckCancellation();
                     LogDetailed($"Typing args: {args}");
                     TypeText(args);
                     LogDetailed("Sleep 100ms.");
                     Thread.Sleep(100);
+                    CheckCancellation();
                     NativeMethods.SendKey(NativeMethods.VK_SPACE);
                     LogDetailed("Sent final Space.");
                 }
@@ -519,19 +531,23 @@ namespace iikoServiceHelper
             _hotkeyManager.IsInputBlocked = true;
             try
             {
+                CheckCancellation();
                 // 1. Prepare
                 NativeMethods.ReleaseModifiers();
                 NativeMethods.ReleaseAlphaKeys(); // Fix for Alt+C triggering Ctrl+C
                 LogDetailed("Modifiers released. Sleep 100ms.");
                 Thread.Sleep(100);
+                CheckCancellation();
 
                 // 2. Paste Text
                 LogDetailed("Calling TypeText...");
                 TypeText(text);
                 LogDetailed("TypeText finished. Sleep 50ms.");
                 Thread.Sleep(50);
+                CheckCancellation();
                 LogDetailed("Sleep 100ms.");
                 Thread.Sleep(100);
+                CheckCancellation();
 
                 // 3. Send Enter (Auto-send)
                 LogDetailed("Sending Enter.");
@@ -557,6 +573,7 @@ namespace iikoServiceHelper
             LogDetailed("Waiting for input focus...");
             while (!IsInputFocused())
             {
+                CheckCancellation();
                 Dispatcher.Invoke(() => _overlay.ShowMessage("Ожидание поля ввода..."));
                 Thread.Sleep(500);
             }
@@ -589,6 +606,7 @@ namespace iikoServiceHelper
             LogDetailed($"TypeText: Splitting into {lines.Length} lines.");
             for (int i = 0; i < lines.Length; i++)
             {
+                CheckCancellation();
                 if (!string.IsNullOrEmpty(lines[i]))
                 {
                     LogDetailed($"Sending text line {i}: '{lines[i]}'");
@@ -599,6 +617,7 @@ namespace iikoServiceHelper
                 
                 if (i < lines.Length - 1)
                 {
+                    CheckCancellation();
                     LogDetailed("Sleep 50ms (before Enter).");
                     Thread.Sleep(50);
                     LogDetailed("Sending Enter.");
