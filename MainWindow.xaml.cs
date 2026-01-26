@@ -10,9 +10,12 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using Forms = System.Windows.Forms; 
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Net.WebSockets;
+using System.Text;
 
 namespace iikoServiceHelper
 {
@@ -36,6 +39,10 @@ namespace iikoServiceHelper
         private readonly Queue<(Action Act, string Name)> _commandQueue = new();
         private readonly object _queueLock = new();
         private bool _isQueueRunning = false;
+
+        private DispatcherTimer _crmTimer;
+        private bool _isCrmActive = false;
+        private Process? _browserProcess; // Храним ссылку на процесс браузера
 
         public MainWindow()
         {
@@ -61,6 +68,11 @@ namespace iikoServiceHelper
             // Setup Global Hooks
             _hotkeyManager = new HotkeyManager();
             _hotkeyManager.HotkeyHandler = OnGlobalHotkey;
+
+            // CRM Timer
+            _crmTimer = new DispatcherTimer();
+            _crmTimer.Interval = TimeSpan.FromHours(1);
+            _crmTimer.Tick += CrmTimer_Tick;
 
             // Handle close
             this.Closing += (s, e) => 
@@ -549,7 +561,12 @@ namespace iikoServiceHelper
                 {
                     var json = File.ReadAllText(SettingsFile);
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
-                    if (settings != null) txtNotes.FontSize = settings.NotesFontSize;
+                    if (settings != null)
+                    {
+                        txtNotes.FontSize = settings.NotesFontSize;
+                        txtCrmLogin.Text = settings.CrmLogin;
+                        txtCrmPassword.Password = settings.CrmPassword;
+                    }
                 }
             }
             catch { }
@@ -559,9 +576,500 @@ namespace iikoServiceHelper
         {
             try
             {
-                var settings = new AppSettings { NotesFontSize = txtNotes.FontSize };
+                var settings = new AppSettings 
+                { 
+                    NotesFontSize = txtNotes.FontSize,
+                    CrmLogin = txtCrmLogin.Text,
+                    CrmPassword = txtCrmPassword.Password
+                };
                 var json = JsonSerializer.Serialize(settings);
                 File.WriteAllText(SettingsFile, json);
+            }
+            catch { }
+        }
+
+        private void TxtCrm_LostFocus(object sender, RoutedEventArgs e)
+        {
+            SaveSettings();
+        }
+
+        private void Log(string message)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\n");
+                txtLog.ScrollToEnd();
+            });
+        }
+
+        // ================= CRM AUTO LOGIN =================
+
+        private void CmbBrowsers_DropDownOpened(object sender, EventArgs e)
+        {
+            var targetBrowsers = new[] { "msedge", "chrome", "browser", "vivaldi" };
+            var foundBrowsers = new List<BrowserItem>();
+
+            // 1. Ищем по стандартным путям (даже если не запущены)
+            var commonPaths = new List<(string Name, string Path)>
+            {
+                ("Edge", @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+                ("Edge", @"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+                ("Chrome", @"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+                ("Chrome", @"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+                ("Yandex", @"C:\Users\" + Environment.UserName + @"\AppData\Local\Yandex\YandexBrowser\Application\browser.exe")
+            };
+
+            foreach (var item in commonPaths)
+            {
+                if (File.Exists(item.Path))
+                {
+                    if (!foundBrowsers.Any(b => b.Path.Equals(item.Path, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        foundBrowsers.Add(new BrowserItem { Name = item.Name, Path = item.Path });
+                    }
+                }
+            }
+
+            // 2. Ищем запущенные процессы (для нестандартных путей)
+            foreach (var procName in targetBrowsers)
+            {
+                var processes = Process.GetProcessesByName(procName);
+                foreach (var p in processes)
+                {
+                    try
+                    {
+                        if (p.MainModule != null)
+                        {
+                            string? path = p.MainModule.FileName;
+                            if (string.IsNullOrEmpty(path)) continue;
+
+                            string name = procName switch
+                            {
+                                "msedge" => "Edge",
+                                "chrome" => "Chrome",
+                                "browser" => "Yandex",
+                                "vivaldi" => "Vivaldi",
+                                _ => procName
+                            };
+
+                            if (!foundBrowsers.Any(b => b.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                foundBrowsers.Add(new BrowserItem { Name = name, Path = path });
+                            }
+                            break; // Достаточно одного процесса для получения пути
+                        }
+                    }
+                    catch { /* Игнорируем ошибки доступа к системным процессам */ }
+                }
+            }
+
+            cmbBrowsers.ItemsSource = foundBrowsers;
+            if (foundBrowsers.Count > 0 && cmbBrowsers.SelectedIndex == -1)
+                cmbBrowsers.SelectedIndex = 0;
+        }
+
+        private async void BtnCrmAutoLogin_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isCrmActive)
+            {
+                _isCrmActive = false;
+                _crmTimer.Stop();
+                btnCrmAutoLogin.Content = "ВКЛЮЧИТЬ";
+                txtCrmStatus.Text = "Статус: Отключено";
+                txtCrmStatus.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gray);
+                Log("Авто-вход остановлен пользователем.");
+            }
+            else
+            {
+                if (cmbBrowsers.SelectedValue == null)
+                {
+                    MessageBox.Show("Сначала выберите браузер из списка (браузер должен быть запущен).");
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(txtCrmLogin.Text) || string.IsNullOrEmpty(txtCrmPassword.Password))
+                {
+                    MessageBox.Show("Введите Логин и Пароль для авто-входа.");
+                    return;
+                }
+
+                // Проверка: Запущен ли браузер без порта отладки?
+                var selectedBrowser = cmbBrowsers.SelectedItem as BrowserItem;
+                if (selectedBrowser != null)
+                {
+                    string procName = System.IO.Path.GetFileNameWithoutExtension(selectedBrowser.Path);
+                    bool isRunning = Process.GetProcessesByName(procName).Any();
+                    bool cdpAvailable = false;
+                    try 
+                    { 
+                        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+                        await http.GetStringAsync("http://127.0.0.1:9222/json"); 
+                        cdpAvailable = true; 
+                    } catch { }
+
+                    if (isRunning && !cdpAvailable)
+                    {
+                        var res = MessageBox.Show(
+                            $"Браузер {selectedBrowser.Name} запущен без порта отладки.\n" +
+                            "Для работы авто-входа необходимо перезапустить браузер.\n\n" +
+                            "Перезапустить сейчас?", 
+                            "Требуется перезапуск", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                        
+                        if (res == MessageBoxResult.Yes)
+                        {
+                            Log($"Перезапуск браузера {selectedBrowser.Name}...");
+                            foreach (var p in Process.GetProcessesByName(procName)) { try { p.Kill(); } catch { } }
+                            await Task.Delay(2000);
+                        }
+                        else return;
+                    }
+                }
+
+                _isCrmActive = true;
+                
+                CrmTimer_Tick(null, null); // Запуск сразу
+                _crmTimer.Start();
+                btnCrmAutoLogin.Content = "СТОП";
+                txtCrmStatus.Text = $"Статус: Активно";
+                txtCrmStatus.Foreground = (System.Windows.Media.Brush)FindResource("BrushAccent");
+                Log("Авто-вход включен.");
+            }
+        }
+
+        private void CrmTimer_Tick(object? sender, EventArgs? e)
+        {
+            Log("Таймер сработал: Выполнение авто-входа...");
+            RunVisibleLogin();
+        }
+
+        private async void RunVisibleLogin()
+        {
+            try
+            {
+                var selectedBrowser = cmbBrowsers.SelectedItem as BrowserItem;
+                string? browserPath = selectedBrowser?.Path;
+                string browserName = selectedBrowser?.Name ?? "Unknown";
+
+                if (!string.IsNullOrEmpty(browserPath) && File.Exists(browserPath))
+                {
+                    using var http = new HttpClient();
+                    http.Timeout = TimeSpan.FromSeconds(2);
+
+                    int port = 9222;
+                    bool cdpAvailable = false;
+
+                    // 1. Проверяем, доступен ли уже порт отладки (CDP)
+                    try 
+                    {
+                        await http.GetStringAsync($"http://127.0.0.1:{port}/json");
+                        cdpAvailable = true;
+                    }
+                    catch { }
+
+                    bool weLaunchedIt = false;
+
+                    // =========================================================
+                    // СЦЕНАРИЙ 2: ИСПОЛЬЗОВАНИЕ CDP (Свернутый/Фоновый режим)
+                    // =========================================================
+                    
+                    if (cdpAvailable)
+                    {
+                        Log("Подключение к активному браузеру через CDP (Свернутый режим)...");
+                    }
+                    else
+                    {
+                        Log($"Браузер закрыт. Запуск в СВЕРНУТОМ режиме (Основной профиль)...");
+                        
+                        // Запускаем свернутым, чтобы подхватился основной профиль
+                        string args = $"--remote-debugging-port={port} --no-first-run --no-default-browser-check \"http://crm.iiko.ru/\"";
+                        var psi = new ProcessStartInfo(browserPath) 
+                        { 
+                            Arguments = args, 
+                            UseShellExecute = true, 
+                            WindowStyle = ProcessWindowStyle.Minimized 
+                        };
+                        _browserProcess = Process.Start(psi);
+                        weLaunchedIt = true;
+                        await Task.Delay(5000);
+                    }
+
+                    // Подключение WebSocket
+                    string? wsUrl = null;
+
+                    // Если подключились к существующему процессу, пробуем создать вкладку
+                    if (!weLaunchedIt)
+                    {
+                        try
+                        {
+                            // 1. Сначала ищем существующую вкладку
+                            string jsonTabs = await http.GetStringAsync($"http://127.0.0.1:{port}/json");
+                            using var docTabs = JsonDocument.Parse(jsonTabs);
+                            
+                            foreach (var el in docTabs.RootElement.EnumerateArray())
+                            {
+                                if (el.TryGetProperty("type", out var type) && type.GetString() == "page")
+                                {
+                                    if (el.TryGetProperty("url", out var urlProp) && urlProp.GetString()?.Contains("crm.iiko.ru") == true)
+                                    {
+                                        if (el.TryGetProperty("webSocketDebuggerUrl", out var val))
+                                        {
+                                            wsUrl = val.GetString();
+                                            Log("Найдена существующая вкладка CRM.");
+                                            // Активируем вкладку
+                                            if (el.TryGetProperty("id", out var id))
+                                                try { await http.GetStringAsync($"http://127.0.0.1:{port}/json/activate/{id.GetString()}"); } catch { }
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2. Если не нашли, создаем новую
+                            if (string.IsNullOrEmpty(wsUrl))
+                            {
+                                Log("Вкладка CRM не найдена. Создание новой...");
+                                var response = await http.PutAsync($"http://127.0.0.1:{port}/json/new?http://crm.iiko.ru/", new StringContent(""));
+                                if (response.IsSuccessStatusCode)
+                                {
+                                    string jsonNew = await response.Content.ReadAsStringAsync();
+                                    using var docNew = JsonDocument.Parse(jsonNew);
+                                    if (docNew.RootElement.TryGetProperty("webSocketDebuggerUrl", out var val))
+                                    {
+                                        wsUrl = val.GetString();
+                                        Log("Вкладка создана успешно.");
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex) { Log($"Ошибка поиска/создания вкладки: {ex.Message}"); }
+                    }
+
+                    if (string.IsNullOrEmpty(wsUrl))
+                    {
+                        Log("Поиск существующей страницы...");
+                        for (int i = 0; i < 10; i++)
+                        {
+                            try
+                            {
+                                string json = await http.GetStringAsync($"http://127.0.0.1:{port}/json");
+                                using var doc = JsonDocument.Parse(json);
+                                foreach (var el in doc.RootElement.EnumerateArray())
+                                {
+                                    if (el.TryGetProperty("type", out var type) && type.GetString() == "page")
+                                    {
+                                        if (el.TryGetProperty("webSocketDebuggerUrl", out var val)) { wsUrl = val.GetString(); break; }
+                                    }
+                                }
+                            }
+                            catch { }
+                            if (!string.IsNullOrEmpty(wsUrl)) break;
+                            await Task.Delay(1000);
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(wsUrl))
+                    {
+                        using var ws = new ClientWebSocket();
+                        await ws.ConnectAsync(new Uri(wsUrl), CancellationToken.None);
+                        Log("WebSocket подключен.");
+
+                        if (weLaunchedIt)
+                        {
+                            Log("Переход на страницу CRM...");
+                            var navCmd = new { id = 500, method = "Page.navigate", @params = new { url = "http://crm.iiko.ru/" } };
+                            var navBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(navCmd));
+                            await ws.SendAsync(new ArraySegment<byte>(navBytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                            await Task.Delay(4000);
+                        }
+                        else
+                        {
+                            Log("Ожидание загрузки вкладки...");
+                            await Task.Delay(4000);
+                        }
+
+                        string login = txtCrmLogin.Text;
+                        string password = txtCrmPassword.Password;
+
+                        // Скрипт для ввода данных
+                        string js = $@"
+                            (function() {{
+                                var attempts = 0;
+                                var interval = setInterval(function() {{
+                                    var user = document.querySelector('input[name=""user_name""]');
+                                    var pass = document.querySelector('input[name=""user_password""]');
+                                    var btn = document.querySelector('input[name=""Login""]');
+                                    if (!btn) btn = document.querySelector('input[src*=""btnSignInNEW""]');
+
+                                    if(user && pass) {{
+                                        clearInterval(interval);
+                                        
+                                        user.focus();
+                                        user.value = '{login}';
+                                        user.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                        user.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                        
+                                        pass.focus();
+                                        pass.value = '{password}';
+                                        pass.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                        pass.dispatchEvent(new Event('change', {{ bubbles: true }}));
+
+                                        setTimeout(function() {{
+                                            if(btn) btn.click();
+                                            else {{ var f = pass.closest('form'); if(f) f.submit(); }}
+                                        }}, 500);
+                                    }}
+                                    
+                                    attempts++;
+                                    if (attempts > 20) clearInterval(interval); // Ждем появления полей до 10 сек
+                                }}, 500);
+                            }})();
+                        ";
+
+                        var cmd = new { id = 1, method = "Runtime.evaluate", @params = new { expression = js } };
+                        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cmd));
+                        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                        Log("JS скрипт ввода данных отправлен.");
+                        
+                        txtCrmStatus.Text = "Выполняется вход...";
+                        
+                        // Проверка успешности входа (Polling)
+                        bool isLogged = false;
+                        var buffer = new byte[8192];
+                        Log("Начало проверки входа (цикл 60 сек)...");
+
+                        for (int i = 0; i < 60; i++) // Ждем до 60 секунд
+                        {
+                            await Task.Delay(1000);
+                            try
+                            {
+                                if (weLaunchedIt && _browserProcess != null && _browserProcess.HasExited)
+                                {
+                                    Log("Браузер был закрыт.");
+                                    break;
+                                }
+
+                                if (ws.State != WebSocketState.Open)
+                                {
+                                    Log("Связь с браузером потеряна (WebSocket закрыт).");
+                                    break;
+                                }
+
+                                var checkCmd = new { id = 1000 + i, method = "Runtime.evaluate", @params = new { expression = "document.querySelector('a[href*=\"action=Logout\"]') ? 'AUTH_SUCCESS' : window.location.href" } };
+                                var checkBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(checkCmd));
+                                await ws.SendAsync(new ArraySegment<byte>(checkBytes), WebSocketMessageType.Text, true, CancellationToken.None);
+
+                                var res = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                                string response = Encoding.UTF8.GetString(buffer, 0, res.Count);
+
+                                if (response.Contains("AUTH_SUCCESS"))
+                                {
+                                    isLogged = true;
+                                    Log($"Успешный вход подтвержден (найдена кнопка Выход).");
+                                    break;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"Ошибка проверки ({i}): {ex.Message}");
+                            }
+                        }
+
+                        if (isLogged)
+                        {
+                            txtCrmStatus.Text = $"Успешный вход: {DateTime.Now:HH:mm}";
+                            Log("Вход выполнен успешно.");
+                            Log("Браузер оставлен открытым.");
+                        }
+                        else
+                        {
+                            txtCrmStatus.Text = "Вход не подтвержден (Таймаут)";
+                            Log("Таймаут ожидания входа.");
+                        }
+                    }
+                }
+                else
+                {
+                    _isCrmActive = false;
+                    _crmTimer.Stop();
+                    btnCrmAutoLogin.Content = "ВКЛЮЧИТЬ";
+                    MessageBox.Show("Браузер не найден. Авто-вход остановлен.");
+                    Log("Ошибка: Браузер не найден.");
+                }
+            }
+            catch (Exception ex)
+            {
+                txtCrmStatus.Text = "Ошибка входа";
+                Debug.WriteLine(ex.Message);
+                Log($"КРИТИЧЕСКАЯ ОШИБКА: {ex.Message}\n{ex.StackTrace}");
+            }
+            finally
+            {
+            }
+        }
+
+        private void BtnShowBrowser_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                bool found = false;
+
+                // 1. Пробуем найти через сохраненный процесс
+                if (_browserProcess != null && !_browserProcess.HasExited)
+                {
+                    _browserProcess.Refresh();
+                    IntPtr handle = _browserProcess.MainWindowHandle;
+                    if (handle != IntPtr.Zero)
+                    {
+                        NativeMethods.ShowWindow(handle, NativeMethods.SW_RESTORE);
+                        NativeMethods.SetForegroundWindow(handle);
+                        Log("Команда 'Показать' отправлена окну браузера (Process).");
+                        found = true;
+                    }
+                }
+
+                // 2. Если не вышло, ищем любое окно выбранного браузера
+                if (!found)
+                {
+                    var selectedBrowser = cmbBrowsers.SelectedItem as BrowserItem;
+                    if (selectedBrowser != null)
+                    {
+                        string procName = System.IO.Path.GetFileNameWithoutExtension(selectedBrowser.Path);
+                        var procs = Process.GetProcessesByName(procName);
+                        foreach (var p in procs)
+                        {
+                            if (p.MainWindowHandle != IntPtr.Zero)
+                            {
+                                NativeMethods.ShowWindow(p.MainWindowHandle, NativeMethods.SW_RESTORE);
+                                NativeMethods.SetForegroundWindow(p.MainWindowHandle);
+                                found = true;
+                                break; // Разворачиваем первое найденное
+                            }
+                        }
+                        if (found) Log($"Команда 'Показать' отправлена окну браузера ({procName}).");
+                    }
+                }
+
+                if (!found) Log("Процесс браузера не найден или не имеет окна.");
+            }
+            catch
+            {
+                Log("Браузер не найден или не запущен.");
+            }
+        }
+
+        private void BtnKillBrowser_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_browserProcess != null && !_browserProcess.HasExited)
+                {
+                    _browserProcess.Kill();
+                    Log("Браузер принудительно закрыт.");
+                }
+                else
+                {
+                    Log("Нет активного процесса для закрытия.");
+                }
             }
             catch { }
         }
@@ -576,5 +1084,13 @@ namespace iikoServiceHelper
     public class AppSettings
     {
         public double NotesFontSize { get; set; } = 14;
+        public string CrmLogin { get; set; } = "";
+        public string CrmPassword { get; set; } = "";
+    }
+
+    public class BrowserItem
+    {
+        public string Name { get; set; } = "";
+        public string Path { get; set; } = "";
     }
 }

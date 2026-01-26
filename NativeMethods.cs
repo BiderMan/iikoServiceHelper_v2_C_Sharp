@@ -13,8 +13,10 @@ namespace iikoServiceHelper
         public const ushort VK_SHIFT = 0x10;
         public const ushort VK_MENU = 0x12; // Alt
         public const ushort VK_V = 0x56;
+        public const ushort VK_W = 0x57;
         public const ushort VK_RETURN = 0x0D;
         public const ushort VK_SPACE = 0x20;
+        public const ushort VK_TAB = 0x09;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct INPUT
@@ -65,6 +67,18 @@ namespace iikoServiceHelper
             SendKeyStroke(VK_V, false);
             Thread.Sleep(20);
             SendKeyStroke(VK_V, true);
+            Thread.Sleep(20);
+            SendKeyStroke(VK_CONTROL, true);
+        }
+
+        public static void SendCtrlW()
+        {
+            // Ctrl Down, W Down, W Up, Ctrl Up
+            SendKeyStroke(VK_CONTROL, false);
+            Thread.Sleep(20);
+            SendKeyStroke(VK_W, false);
+            Thread.Sleep(20);
+            SendKeyStroke(VK_W, true);
             Thread.Sleep(20);
             SendKeyStroke(VK_CONTROL, true);
         }
@@ -180,5 +194,14 @@ namespace iikoServiceHelper
 
         [DllImport("user32.dll")]
         public static extern short GetKeyState(int nVirtKey);
+
+        // --- WINDOW MANAGEMENT ---
+        public const int SW_RESTORE = 9;
+
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
     }
 }
