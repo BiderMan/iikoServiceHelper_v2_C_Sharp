@@ -230,6 +230,8 @@ namespace iikoServiceHelper
 
             Reg("Alt+Divide", "Сообщить о платных работах", () => reply("Добрый день, вы обратились в техническую поддержку iikoService.  \nК сожалению, с Вашей организацией не заключен договор технической поддержки.\nРаботы могут быть выполнены только на платной основе.\n\nСтоимость работ: руб.\nВы согласны на платные работы?"));
             
+            Reg("Alt+Space", "Исправить раскладку (выделенное)", () => FixLayout());
+            
             Reg("Alt+Q", "Очистить очередь", ClearCommandQueue);
             
             foreach (var desc in descOrder)
@@ -628,6 +630,87 @@ namespace iikoServiceHelper
             }
         }
 
+        private void FixLayout()
+        {
+            WaitForInputFocus();
+            LogDetailed("[START] FixLayout.");
+            var sw = Stopwatch.StartNew();
+            _hotkeyManager.IsInputBlocked = true;
+            try
+            {
+                CheckCancellation();
+                NativeMethods.ReleaseModifiers();
+                NativeMethods.ReleaseAlphaKeys();
+                Thread.Sleep(50);
+
+                // Copy (Ctrl+C)
+                Forms.SendKeys.SendWait("^c");
+                Thread.Sleep(50);
+                
+                string text = null;
+                // Работа с буфером обмена должна происходить в UI потоке (STA)
+                Application.Current.Dispatcher.Invoke(() => 
+                {
+                    try { if (Clipboard.ContainsText()) text = Clipboard.GetText(); } catch { }
+                });
+
+                if (!string.IsNullOrEmpty(text))
+                {
+                    string fixedText = ConvertLayout(text);
+                    if (text != fixedText)
+                    {
+                        Application.Current.Dispatcher.Invoke(() => 
+                        {
+                            try { Clipboard.SetText(fixedText); } catch { }
+                        });
+                        
+                        Forms.SendKeys.SendWait("^v");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogDetailed($"FixLayout Error: {ex.Message}");
+            }
+            finally
+            {
+                _hotkeyManager.IsInputBlocked = false;
+                if (_hotkeyManager.IsAltPhysicallyDown)
+                {
+                    NativeMethods.PressAltDown();
+                }
+                sw.Stop();
+                LogDetailed($"[END] FixLayout. Duration: {sw.ElapsedMilliseconds}ms");
+            }
+        }
+
+        private string ConvertLayout(string text)
+        {
+            // Mapping EN <-> RU
+            // Lowercase
+            var en = "qwertyuiop[]asdfghjkl;'zxcvbnm,.";
+            var ru = "йцукенгшщзхъфывапролджэячсмитьбю";
+            // Uppercase
+            var enCap = "QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>";
+            var ruCap = "ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ";
+            // Symbols
+            var enSym = "`~@#$^&/?|\\";
+            var ruSym = "ёЁ\"№;:?.,/\\";
+
+            var sb = new StringBuilder(text.Length);
+            foreach (char c in text)
+            {
+                int idx;
+                if ((idx = en.IndexOf(c)) != -1) sb.Append(ru[idx]);
+                else if ((idx = ru.IndexOf(c)) != -1) sb.Append(en[idx]);
+                else if ((idx = enCap.IndexOf(c)) != -1) sb.Append(ruCap[idx]);
+                else if ((idx = ruCap.IndexOf(c)) != -1) sb.Append(enCap[idx]);
+                else if ((idx = enSym.IndexOf(c)) != -1) sb.Append(ruSym[idx]);
+                else if ((idx = ruSym.IndexOf(c)) != -1) sb.Append(enSym[idx]);
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
 
         // Notes
         private void LoadNotes()
