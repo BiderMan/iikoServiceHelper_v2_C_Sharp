@@ -543,6 +543,38 @@ namespace iikoServiceHelper
             }
         }
 
+        private void OpenFtp_Click(object sender, RoutedEventArgs e)
+        {
+            string path = @"\\files.resto.lan\";
+            string user = txtCrmLogin.Text;
+            string pass = txtCrmPassword.Password;
+
+            if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
+            {
+                MessageBox.Show("Для доступа к FTP заполните Логин и Пароль от CRM.");
+                return;
+            }
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    // Используем cmdkey для сохранения учетных данных в Windows (Credential Manager)
+                    // Это позволяет Проводнику автоматически подхватить пароль при открытии папки
+                    string target = "files.resto.lan";
+
+                    var pDel = Process.Start(new ProcessStartInfo("cmdkey", $"/delete:{target}") { CreateNoWindow = true, UseShellExecute = false });
+                    pDel?.WaitForExit();
+
+                    var pAdd = Process.Start(new ProcessStartInfo("cmdkey", $"/add:{target} /user:{user} /pass:\"{pass}\"") { CreateNoWindow = true, UseShellExecute = false });
+                    pAdd?.WaitForExit();
+
+                    Process.Start(new ProcessStartInfo("explorer.exe", path) { UseShellExecute = true });
+                }
+                catch (Exception ex) { Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Ошибка: {ex.Message}")); }
+            });
+        }
+
         private void BtnZoomIn_Click(object sender, RoutedEventArgs e)
         {
             if (txtNotes.FontSize < 72) txtNotes.FontSize += 1;
@@ -796,53 +828,51 @@ namespace iikoServiceHelper
                     // Подключение WebSocket
                     string? wsUrl = null;
 
-                    // Если подключились к существующему процессу, пробуем создать вкладку
-                    if (!weLaunchedIt)
+                    // Всегда пробуем найти или создать правильную вкладку
+                    // Это предотвращает захват чужой активной вкладки (например, если weLaunchedIt определился неверно)
+                    try
                     {
-                        try
+                        // 1. Сначала ищем существующую вкладку
+                        string jsonTabs = await http.GetStringAsync($"http://127.0.0.1:{port}/json");
+                        using var docTabs = JsonDocument.Parse(jsonTabs);
+                        
+                        foreach (var el in docTabs.RootElement.EnumerateArray())
                         {
-                            // 1. Сначала ищем существующую вкладку
-                            string jsonTabs = await http.GetStringAsync($"http://127.0.0.1:{port}/json");
-                            using var docTabs = JsonDocument.Parse(jsonTabs);
-                            
-                            foreach (var el in docTabs.RootElement.EnumerateArray())
+                            if (el.TryGetProperty("type", out var type) && type.GetString() == "page")
                             {
-                                if (el.TryGetProperty("type", out var type) && type.GetString() == "page")
+                                if (el.TryGetProperty("url", out var urlProp) && urlProp.GetString()?.Contains("crm.iiko.ru") == true)
                                 {
-                                    if (el.TryGetProperty("url", out var urlProp) && urlProp.GetString()?.Contains("crm.iiko.ru") == true)
-                                    {
-                                        if (el.TryGetProperty("webSocketDebuggerUrl", out var val))
-                                        {
-                                            wsUrl = val.GetString();
-                                            Log("Найдена существующая вкладка CRM.");
-                                            // Активируем вкладку
-                                            if (el.TryGetProperty("id", out var id))
-                                                try { await http.GetStringAsync($"http://127.0.0.1:{port}/json/activate/{id.GetString()}"); } catch { }
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 2. Если не нашли, создаем новую
-                            if (string.IsNullOrEmpty(wsUrl))
-                            {
-                                Log("Вкладка CRM не найдена. Создание новой...");
-                                var response = await http.PutAsync($"http://127.0.0.1:{port}/json/new?http://crm.iiko.ru/", new StringContent(""));
-                                if (response.IsSuccessStatusCode)
-                                {
-                                    string jsonNew = await response.Content.ReadAsStringAsync();
-                                    using var docNew = JsonDocument.Parse(jsonNew);
-                                    if (docNew.RootElement.TryGetProperty("webSocketDebuggerUrl", out var val))
+                                    if (el.TryGetProperty("webSocketDebuggerUrl", out var val))
                                     {
                                         wsUrl = val.GetString();
-                                        Log("Вкладка создана успешно.");
+                                        Log("Найдена существующая вкладка CRM.");
+                                        // Активируем вкладку
+                                        if (el.TryGetProperty("id", out var id))
+                                            try { await http.GetStringAsync($"http://127.0.0.1:{port}/json/activate/{id.GetString()}"); } catch { }
+                                        break;
                                     }
                                 }
                             }
                         }
-                        catch (Exception ex) { Log($"Ошибка поиска/создания вкладки: {ex.Message}"); }
+
+                        // 2. Если не нашли, создаем новую
+                        if (string.IsNullOrEmpty(wsUrl))
+                        {
+                            Log("Вкладка CRM не найдена. Создание новой...");
+                            var response = await http.PutAsync($"http://127.0.0.1:{port}/json/new?http://crm.iiko.ru/", new StringContent(""));
+                            if (response.IsSuccessStatusCode)
+                            {
+                                string jsonNew = await response.Content.ReadAsStringAsync();
+                                using var docNew = JsonDocument.Parse(jsonNew);
+                                if (docNew.RootElement.TryGetProperty("webSocketDebuggerUrl", out var val))
+                                {
+                                    wsUrl = val.GetString();
+                                    Log("Вкладка создана успешно.");
+                                }
+                            }
+                        }
                     }
+                    catch (Exception ex) { Log($"Ошибка поиска/создания вкладки: {ex.Message}"); }
 
                     if (string.IsNullOrEmpty(wsUrl))
                     {
@@ -873,19 +903,30 @@ namespace iikoServiceHelper
                         await ws.ConnectAsync(new Uri(wsUrl), CancellationToken.None);
                         Log("WebSocket подключен.");
 
-                        if (weLaunchedIt)
+                        // Мы уже задали URL при создании вкладки или нашли готовую.
+                        // Явный переход не требуется.
+                        Log("Ожидание загрузки вкладки...");
+                        await Task.Delay(4000);
+
+                        // Проверка: Если мы уже залогинены - не пытаемся вводить пароль
+                        try
                         {
-                            Log("Переход на страницу CRM...");
-                            var navCmd = new { id = 500, method = "Page.navigate", @params = new { url = "http://crm.iiko.ru/" } };
-                            var navBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(navCmd));
-                            await ws.SendAsync(new ArraySegment<byte>(navBytes), WebSocketMessageType.Text, true, CancellationToken.None);
-                            await Task.Delay(4000);
+                            var checkAuthCmd = new { id = 50, method = "Runtime.evaluate", @params = new { expression = "!!document.querySelector('a[href*=\"action=Logout\"]')" } };
+                            var checkAuthBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(checkAuthCmd));
+                            await ws.SendAsync(new ArraySegment<byte>(checkAuthBytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                            
+                            var authBuffer = new byte[2048];
+                            var authRes = await ws.ReceiveAsync(new ArraySegment<byte>(authBuffer), CancellationToken.None);
+                            string authResponse = Encoding.UTF8.GetString(authBuffer, 0, authRes.Count);
+                            
+                            if (authResponse.Contains("\"value\":true") || authResponse.Contains("\"value\": true"))
+                            {
+                                txtCrmStatus.Text = $"Уже в системе: {DateTime.Now:HH:mm}";
+                                Log("Вкладка уже авторизована. Вход не требуется.");
+                                return;
+                            }
                         }
-                        else
-                        {
-                            Log("Ожидание загрузки вкладки...");
-                            await Task.Delay(4000);
-                        }
+                        catch { }
 
                         string login = txtCrmLogin.Text;
                         string password = txtCrmPassword.Password;

@@ -349,7 +349,10 @@
              <!-- Tab 3: Tools -->
             <TabItem Header="ИНСТРУМЕНТЫ">
                 <StackPanel Margin="20">
-                     <TextBlock Text="ДОСТУПНЫЕ УТИЛИТЫ" Foreground="#666666" FontSize="12" Margin="5,0,0,10" FontWeight="Bold"/>
+                     <Grid Margin="5,0,0,10">
+                         <TextBlock Text="ДОСТУПНЫЕ УТИЛИТЫ" Foreground="#666666" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                         <Button Content="FTP" Click="OpenFtp_Click" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть \\files.resto.lan\" HorizontalAlignment="Right"/>
+                     </Grid>
                      <Button Content="ORDERCHECK" Click="OpenOrderCheck_Click" HorizontalAlignment="Left" Width="250"/>
                      <Button Content="CLEAR.bat" Click="OpenClearBat_Click" HorizontalAlignment="Left" Width="250"/>
 
