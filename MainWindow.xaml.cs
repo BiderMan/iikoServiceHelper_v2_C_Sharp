@@ -636,6 +636,7 @@ namespace iikoServiceHelper
             LogDetailed("[START] FixLayout.");
             var sw = Stopwatch.StartNew();
             _hotkeyManager.IsInputBlocked = true;
+
             try
             {
                 CheckCancellation();
@@ -643,12 +644,14 @@ namespace iikoServiceHelper
                 NativeMethods.ReleaseAlphaKeys();
                 Thread.Sleep(50);
 
-                // Copy (Ctrl+C)
+                // 1. Clear to detect selection
+                Application.Current.Dispatcher.Invoke(() => { try { Clipboard.Clear(); } catch { } });
+
+                // 2. Copy (Ctrl+C)
                 Forms.SendKeys.SendWait("^c");
                 Thread.Sleep(50);
                 
-                string text = null;
-                // Работа с буфером обмена должна происходить в UI потоке (STA)
+                string? text = null;
                 Application.Current.Dispatcher.Invoke(() => 
                 {
                     try { if (Clipboard.ContainsText()) text = Clipboard.GetText(); } catch { }
@@ -665,6 +668,10 @@ namespace iikoServiceHelper
                         });
                         
                         Forms.SendKeys.SendWait("^v");
+                        Thread.Sleep(100); 
+                        
+                        // 3. Clean up Clipboard History (remove the 2 items we added: Original + Fixed)
+                        CleanClipboardHistory(2);
                     }
                 }
             }
@@ -682,6 +689,30 @@ namespace iikoServiceHelper
                 sw.Stop();
                 LogDetailed($"[END] FixLayout. Duration: {sw.ElapsedMilliseconds}ms");
             }
+        }
+
+        private void CleanClipboardHistory(int itemsToDelete)
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    // Requires Windows 10/11 and WinRT API support
+                    if (!Windows.ApplicationModel.DataTransfer.Clipboard.IsHistoryEnabled()) return;
+
+                    var history = await Windows.ApplicationModel.DataTransfer.Clipboard.GetHistoryItemsAsync();
+                    if (history.Status == Windows.ApplicationModel.DataTransfer.ClipboardHistoryItemsResultStatus.Success)
+                    {
+                        var items = history.Items;
+                        // Items are sorted by time (most recent first)
+                        for (int i = 0; i < itemsToDelete && i < items.Count; i++)
+                        {
+                            Windows.ApplicationModel.DataTransfer.Clipboard.DeleteItemFromHistory(items[i]);
+                        }
+                    }
+                }
+                catch (Exception ex) { LogDetailed($"Clipboard History Error: {ex.Message}"); }
+            });
         }
 
         private string ConvertLayout(string text)
