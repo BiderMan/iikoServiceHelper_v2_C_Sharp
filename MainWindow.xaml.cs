@@ -16,6 +16,7 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Net.WebSockets;
 using System.Text;
+using System.Net;
 
 namespace iikoServiceHelper
 {
@@ -25,6 +26,8 @@ namespace iikoServiceHelper
         private readonly string AppDir;
         private readonly string NotesFile;
         private readonly string SettingsFile;
+        private readonly string DetailedLogFile;
+        private readonly object _logLock = new();
 
         private Forms.NotifyIcon? _trayIcon;
         private HotkeyManager _hotkeyManager;
@@ -39,6 +42,7 @@ namespace iikoServiceHelper
         private readonly Queue<(Action Act, string Name)> _commandQueue = new();
         private readonly object _queueLock = new();
         private bool _isQueueRunning = false;
+        private string _currentActionName = "";
 
         private DispatcherTimer _crmTimer;
         private bool _isCrmActive = false;
@@ -54,6 +58,7 @@ namespace iikoServiceHelper
             Directory.CreateDirectory(AppDir);
             NotesFile = Path.Combine(AppDir, "notes.txt");
             SettingsFile = Path.Combine(AppDir, "settings.json");
+            DetailedLogFile = Path.Combine(AppDir, "detailed_log.txt");
 
             // Init Logic
             InitializeHotkeys();
@@ -71,7 +76,7 @@ namespace iikoServiceHelper
 
             // CRM Timer
             _crmTimer = new DispatcherTimer();
-            _crmTimer.Interval = TimeSpan.FromHours(1);
+            _crmTimer.Interval = TimeSpan.FromMinutes(30);
             _crmTimer.Tick += CrmTimer_Tick;
 
             // Handle close
@@ -83,6 +88,18 @@ namespace iikoServiceHelper
                 _hotkeyManager.Dispose();
                 System.Windows.Application.Current.Shutdown();
             };
+        }
+
+        private void LogDetailed(string message)
+        {
+            try
+            {
+                lock (_logLock)
+                {
+                    File.AppendAllText(DetailedLogFile, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
+                }
+            }
+            catch { }
         }
 
         private void InitializeHotkeys()
@@ -207,7 +224,11 @@ namespace iikoServiceHelper
 
             Reg("Alt+Shift+Z", "От вас не поступила обратная связь.", () => reply("От вас не поступила обратная связь.\nСпасибо за обращение в iikoService и хорошего Вам дня.\nЕсли возникнут трудности или дополнительные вопросы, просим обратиться к нам повторно.\nЗаявку закрываем."));
 
-            Reg("Alt+Divide", "Сообщить о платных работах", () => reply("Добрый день, вы обратились в техническую поддержку iikoService.\nК сожалению, с Вашей организацией не заключен договор технической поддержки.\nРаботы могут быть выполнены только на платной основе.\n\nСтоимость работ: руб.\nВы согласны на платные работы?\n"));
+            Reg("Alt+B", "Закрываем (нет вопросов)", () => reply("В связи с тем, что дополнительных вопросов от вас не поступало, данное обращение закрываем.\nЕсли у вас остались вопросы, при создании новой заявки, просим указать номер текущей.\nСпасибо за обращение в iikoService и хорошего Вам дня!"));
+
+            Reg("Alt+Divide", "Сообщить о платных работах", () => reply("Добрый день, вы обратились в техническую поддержку iikoService.  \nК сожалению, с Вашей организацией не заключен договор технической поддержки.\nРаботы могут быть выполнены только на платной основе.\n\nСтоимость работ: руб.\nВы согласны на платные работы?"));
+            
+            Reg("Alt+Q", "Очистить очередь", ClearCommandQueue);
             
             foreach (var desc in descOrder)
             {
@@ -277,65 +298,133 @@ namespace iikoServiceHelper
         private bool OnGlobalHotkey(string keyCombo)
         {
             if (_isPaused) return false;
-
+    
             Debug.WriteLine($"Detected: {keyCombo}"); // Debugging
             if (_hotkeyActions.TryGetValue(keyCombo, out var action))
             {
-                lock (_queueLock)
+                LogDetailed($"HOTKEY DETECTED: {keyCombo}");
+                if (keyCombo.Equals("Alt+Q", StringComparison.OrdinalIgnoreCase))
                 {
-                    _commandQueue.Enqueue((action, keyCombo));
-                    if (!_isQueueRunning)
+                    // Выполняем немедленно, вне очереди
+                    LogDetailed("Executing Alt+Q (Immediate).");
+                    action.Invoke();
+                }
+                else
+                {
+                    // Ставим в очередь для последовательного выполнения
+                    lock (_queueLock)
                     {
-                        _isQueueRunning = true;
-                        Task.Run(ProcessQueue);
+                        _commandQueue.Enqueue((action, keyCombo));
+                        LogDetailed($"Enqueued: {keyCombo}. Queue size: {_commandQueue.Count}");
+                        
+                        if (_isQueueRunning)
+                        {
+                            Dispatcher.Invoke(UpdateOverlayMessage);
+                        }
+
+                        if (!_isQueueRunning)
+                        {
+                            _isQueueRunning = true;
+                            Task.Run(ProcessQueue);
+                        }
                     }
                 }
                 return true; // Suppress original key press
             }
             return false;
         }
-
+    
         private void ProcessQueue()
         {
-            while (true)
+            try
             {
-                (Action Act, string Name) item;
-                int queueCount;
+                LogDetailed("Queue processor started.");
+                while (true)
+                {
+                    (Action Act, string Name) item;
+                    int queueCount;
+                    lock (_queueLock)
+                    {
+                        if (_commandQueue.Count == 0)
+                        {
+                            LogDetailed("Queue empty. Processor stopping.");
+                            _isQueueRunning = false;
+                            break;
+                        }
+                        item = _commandQueue.Dequeue();
+                        queueCount = _commandQueue.Count;
+                    }
+                    LogDetailed($"Processing item: {item.Name}. Remaining in queue: {queueCount}");
+    
+                    _currentActionName = FormatKeyCombo(item.Name);
+
+                    Dispatcher.Invoke(() => 
+                    {
+                        IncrementCommandCount();
+                        UpdateOverlayMessage();
+                    });
+    
+                    var sw = Stopwatch.StartNew();
+                    try
+                    {
+                        item.Act.Invoke();
+                    }
+                    catch (Exception ex) { LogDetailed($"Action failed: {ex.Message}"); }
+                    sw.Stop();
+                    LogDetailed($"Finished item: {item.Name}. Duration: {sw.ElapsedMilliseconds}ms");
+                }
+    
+                Dispatcher.Invoke(async () => 
+                {
+                    await Task.Delay(500);
+                    lock (_queueLock)
+                    {
+                        if (!_isQueueRunning) _overlay.HideMessage();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"КРИТИЧЕСКАЯ ОШИБКА В ОЧЕРЕДИ: {ex.Message}");
+                LogDetailed($"CRITICAL QUEUE ERROR: {ex.Message}");
                 lock (_queueLock)
                 {
-                    if (_commandQueue.Count == 0)
-                    {
-                        _isQueueRunning = false;
-                        break;
-                    }
-                    item = _commandQueue.Dequeue();
-                    queueCount = _commandQueue.Count;
+                    _isQueueRunning = false;
+                    _commandQueue.Clear();
                 }
+            }
+        }
 
-                Dispatcher.Invoke(() => 
-                {
-                    IncrementCommandCount();
-                    string msg = FormatKeyCombo(item.Name);
-                    if (queueCount > 0)
-                        msg += $" (Очередь: {queueCount})";
-                    _overlay.ShowMessage(msg);
-                });
+        private void UpdateOverlayMessage()
+        {
+            int count;
+            lock (_queueLock) count = _commandQueue.Count;
+            
+            string msg = _currentActionName;
+            if (count > 0) msg += $" (Очередь: {count})";
+            _overlay.ShowMessage(msg);
+        }
 
-                try
+        private void ClearCommandQueue()
+        {
+            int clearedCount;
+            lock (_queueLock)
+            {
+                clearedCount = _commandQueue.Count;
+                if (clearedCount > 0)
                 {
-                    item.Act.Invoke();
+                    _commandQueue.Clear();
                 }
-                catch { }
             }
 
-            Dispatcher.Invoke(async () => 
+            if (clearedCount > 0)
             {
-                await Task.Delay(500);
-                lock (_queueLock)
+                Log($"Очередь команд принудительно очищена ({clearedCount} команд).");
+                Dispatcher.Invoke(() =>
                 {
-                    if (!_isQueueRunning) _overlay.HideMessage();
-                }
-            });
+                    _overlay.ShowMessage("Очередь очищена");
+                });
+            }
         }
 
         private string FormatKeyCombo(string keyCombo)
@@ -370,30 +459,41 @@ namespace iikoServiceHelper
 
         private void ExecuteBotCommand(string? args)
         {
+            LogDetailed($"[START] ExecuteBotCommand. Args: {args ?? "null"}");
+            var sw = Stopwatch.StartNew();
             _hotkeyManager.IsInputBlocked = true;
             try
             {
                 // 1. Prepare
                 NativeMethods.ReleaseModifiers();
                 NativeMethods.ReleaseAlphaKeys();
-                Thread.Sleep(100); // Increased for stability
+                LogDetailed("Modifiers released. Sleep 100ms.");
+                Thread.Sleep(100);
 
                 // 2. Type @chat_bot
+                LogDetailed("Typing '@chat_bot'...");
                 TypeText("@chat_bot");
+                LogDetailed("Sleep 100ms.");
                 Thread.Sleep(100);
                 
                 // 3. Enter to select bot
+                LogDetailed("Sending Enter.");
                 NativeMethods.SendKey(NativeMethods.VK_RETURN);
                 
                 // 4. If args exist, type them
                 if (!string.IsNullOrEmpty(args))
                 {
-                    Thread.Sleep(200); // Wait for UI to react to Enter
+                    LogDetailed("Args present. Sleep 200ms.");
+                    Thread.Sleep(200);
                     NativeMethods.SendKey(NativeMethods.VK_SPACE);
+                    LogDetailed("Sent Space. Sleep 50ms.");
                     Thread.Sleep(50);
+                    LogDetailed($"Typing args: {args}");
                     TypeText(args);
+                    LogDetailed("Sleep 100ms.");
                     Thread.Sleep(100);
                     NativeMethods.SendKey(NativeMethods.VK_SPACE);
+                    LogDetailed("Sent final Space.");
                 }
             }
             finally
@@ -402,26 +502,36 @@ namespace iikoServiceHelper
                 if (_hotkeyManager.IsAltPhysicallyDown)
                 {
                     NativeMethods.PressAltDown();
+                    LogDetailed("Restored Alt key.");
                 }
+                sw.Stop();
+                LogDetailed($"[END] ExecuteBotCommand. Total duration: {sw.ElapsedMilliseconds}ms");
             }
         }
 
         private void ExecuteReply(string text)
         {
+            LogDetailed($"[START] ExecuteReply. Text length: {text.Length}");
+            var sw = Stopwatch.StartNew();
             _hotkeyManager.IsInputBlocked = true;
             try
             {
                 // 1. Prepare
                 NativeMethods.ReleaseModifiers();
                 NativeMethods.ReleaseAlphaKeys(); // Fix for Alt+C triggering Ctrl+C
-                Thread.Sleep(100); // Increased for stability
+                LogDetailed("Modifiers released. Sleep 100ms.");
+                Thread.Sleep(100);
 
                 // 2. Paste Text
+                LogDetailed("Calling TypeText...");
                 TypeText(text);
+                LogDetailed("TypeText finished. Sleep 50ms.");
                 Thread.Sleep(50);
+                LogDetailed("Sleep 100ms.");
                 Thread.Sleep(100);
 
                 // 3. Send Enter (Auto-send)
+                LogDetailed("Sending Enter.");
                 NativeMethods.SendKey(NativeMethods.VK_RETURN);
             }
             finally
@@ -430,22 +540,34 @@ namespace iikoServiceHelper
                 if (_hotkeyManager.IsAltPhysicallyDown)
                 {
                     NativeMethods.PressAltDown();
+                    LogDetailed("Restored Alt key.");
                 }
+                sw.Stop();
+                LogDetailed($"[END] ExecuteReply. Total duration: {sw.ElapsedMilliseconds}ms");
             }
         }
 
         private void TypeText(string text)
         {
             var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            LogDetailed($"TypeText: Splitting into {lines.Length} lines.");
             for (int i = 0; i < lines.Length; i++)
             {
                 if (!string.IsNullOrEmpty(lines[i]))
+                {
+                    LogDetailed($"Sending text line {i}: '{lines[i]}'");
                     NativeMethods.SendText(lines[i]);
+                    LogDetailed("Sleep 50ms (after text).");
+                    Thread.Sleep(50);
+                }
                 
                 if (i < lines.Length - 1)
                 {
+                    LogDetailed("Sleep 50ms (before Enter).");
                     Thread.Sleep(50);
+                    LogDetailed("Sending Enter.");
                     NativeMethods.SendKey(NativeMethods.VK_RETURN);
+                    LogDetailed("Sleep 50ms (after Enter).");
                     Thread.Sleep(50);
                 }
             }
@@ -573,6 +695,18 @@ namespace iikoServiceHelper
                 }
                 catch (Exception ex) { Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Ошибка: {ex.Message}")); }
             });
+        }
+
+        private void OpenLogFolder_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (Directory.Exists(AppDir))
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", AppDir) { UseShellExecute = true });
+                }
+            }
+            catch (Exception ex) { MessageBox.Show($"Ошибка: {ex.Message}"); }
         }
 
         private void BtnZoomIn_Click(object sender, RoutedEventArgs e)
@@ -741,19 +875,10 @@ namespace iikoServiceHelper
 
                     if (isRunning && !cdpAvailable)
                     {
-                        var res = MessageBox.Show(
-                            $"Браузер {selectedBrowser.Name} запущен без порта отладки.\n" +
-                            "Для работы авто-входа необходимо перезапустить браузер.\n\n" +
-                            "Перезапустить сейчас?", 
-                            "Требуется перезапуск", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                        
-                        if (res == MessageBoxResult.Yes)
-                        {
-                            Log($"Перезапуск браузера {selectedBrowser.Name}...");
-                            foreach (var p in Process.GetProcessesByName(procName)) { try { p.Kill(); } catch { } }
-                            await Task.Delay(2000);
-                        }
-                        else return;
+                        // Автоматический перезапуск для открытия порта, как требовалось
+                        Log($"Браузер {selectedBrowser.Name} запущен без порта. Перезапуск...");
+                        foreach (var p in Process.GetProcessesByName(procName)) { try { p.Kill(); } catch { } }
+                        await Task.Delay(2000);
                     }
                 }
 
@@ -771,10 +896,11 @@ namespace iikoServiceHelper
         private void CrmTimer_Tick(object? sender, EventArgs? e)
         {
             Log("Таймер сработал: Выполнение авто-входа...");
-            RunVisibleLogin();
+            txtLastRun.Text = $"Последний запуск: {DateTime.Now:HH:mm}";
+            RunBackgroundLogin();
         }
 
-        private async void RunVisibleLogin()
+        private async void RunBackgroundLogin()
         {
             try
             {
@@ -798,234 +924,85 @@ namespace iikoServiceHelper
                     }
                     catch { }
 
-                    bool weLaunchedIt = false;
-
-                    // =========================================================
-                    // СЦЕНАРИЙ 2: ИСПОЛЬЗОВАНИЕ CDP (Свернутый/Фоновый режим)
-                    // =========================================================
-                    
                     if (cdpAvailable)
                     {
-                        Log("Подключение к активному браузеру через CDP (Свернутый режим)...");
+                        Log("Порт активен. Выполнение скрипта без открытия вкладок...");
                     }
                     else
                     {
-                        Log($"Браузер закрыт. Запуск в СВЕРНУТОМ режиме (Основной профиль)...");
+                        Log($"Порт закрыт. Запуск браузера с открытым портом...");
                         
-                        // Запускаем свернутым, чтобы подхватился основной профиль
                         string args = $"--remote-debugging-port={port} --no-first-run --no-default-browser-check \"http://crm.iiko.ru/\"";
                         var psi = new ProcessStartInfo(browserPath) 
                         { 
                             Arguments = args, 
                             UseShellExecute = true, 
-                            WindowStyle = ProcessWindowStyle.Minimized 
+                            WindowStyle = ProcessWindowStyle.Normal 
                         };
                         _browserProcess = Process.Start(psi);
-                        weLaunchedIt = true;
                         await Task.Delay(5000);
                     }
 
-                    // Подключение WebSocket
-                    string? wsUrl = null;
-
-                    // Всегда пробуем найти или создать правильную вкладку
-                    // Это предотвращает захват чужой активной вкладки (например, если weLaunchedIt определился неверно)
-                    try
+                    // 1. Выполняем вход через HTTP (без браузера)
+                    Log("Выполнение HTTP-входа...");
+                    var cookies = await PerformHttpLogin(txtCrmLogin.Text, txtCrmPassword.Password);
+                    
+                    if (cookies != null && cookies.Count > 0)
                     {
-                        // 1. Сначала ищем существующую вкладку
-                        string jsonTabs = await http.GetStringAsync($"http://127.0.0.1:{port}/json");
-                        using var docTabs = JsonDocument.Parse(jsonTabs);
-                        
-                        foreach (var el in docTabs.RootElement.EnumerateArray())
-                        {
-                            if (el.TryGetProperty("type", out var type) && type.GetString() == "page")
-                            {
-                                if (el.TryGetProperty("url", out var urlProp) && urlProp.GetString()?.Contains("crm.iiko.ru") == true)
-                                {
-                                    if (el.TryGetProperty("webSocketDebuggerUrl", out var val))
-                                    {
-                                        wsUrl = val.GetString();
-                                        Log("Найдена существующая вкладка CRM.");
-                                        // Активируем вкладку
-                                        if (el.TryGetProperty("id", out var id))
-                                            try { await http.GetStringAsync($"http://127.0.0.1:{port}/json/activate/{id.GetString()}"); } catch { }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
+                        Log($"Получено куки: {cookies.Count}. Внедрение в браузер...");
 
-                        // 2. Если не нашли, создаем новую
-                        if (string.IsNullOrEmpty(wsUrl))
+                        // 2. Подключаемся к браузеру (любая страница подойдет, нам нужен только Network домен)
+                        // Ищем любую страницу для подключения WebSocket
+                        string json = await http.GetStringAsync($"http://127.0.0.1:{port}/json");
+                        string? wsUrl = null;
+                        using (var doc = JsonDocument.Parse(json))
                         {
-                            Log("Вкладка CRM не найдена. Создание новой...");
-                            var response = await http.PutAsync($"http://127.0.0.1:{port}/json/new?http://crm.iiko.ru/", new StringContent(""));
-                            if (response.IsSuccessStatusCode)
+                            foreach (var el in doc.RootElement.EnumerateArray())
                             {
-                                string jsonNew = await response.Content.ReadAsStringAsync();
-                                using var docNew = JsonDocument.Parse(jsonNew);
-                                if (docNew.RootElement.TryGetProperty("webSocketDebuggerUrl", out var val))
+                                if (el.TryGetProperty("webSocketDebuggerUrl", out var val))
                                 {
                                     wsUrl = val.GetString();
-                                    Log("Вкладка создана успешно.");
+                                    break;
                                 }
                             }
                         }
-                    }
-                    catch (Exception ex) { Log($"Ошибка поиска/создания вкладки: {ex.Message}"); }
 
-                    if (string.IsNullOrEmpty(wsUrl))
-                    {
-                        Log("Поиск существующей страницы...");
-                        for (int i = 0; i < 10; i++)
+                        if (string.IsNullOrEmpty(wsUrl))
                         {
-                            try
-                            {
-                                string json = await http.GetStringAsync($"http://127.0.0.1:{port}/json");
-                                using var doc = JsonDocument.Parse(json);
-                                foreach (var el in doc.RootElement.EnumerateArray())
-                                {
-                                    if (el.TryGetProperty("type", out var type) && type.GetString() == "page")
-                                    {
-                                        if (el.TryGetProperty("webSocketDebuggerUrl", out var val)) { wsUrl = val.GetString(); break; }
-                                    }
-                                }
-                            }
-                            catch { }
-                            if (!string.IsNullOrEmpty(wsUrl)) break;
-                            await Task.Delay(1000);
+                            Log("Ошибка: Не удалось подключиться к CDP (нет доступных таргетов).");
+                            return;
                         }
-                    }
 
-                    if (!string.IsNullOrEmpty(wsUrl))
-                    {
                         using var ws = new ClientWebSocket();
                         await ws.ConnectAsync(new Uri(wsUrl), CancellationToken.None);
-                        Log("WebSocket подключен.");
-
-                        // Мы уже задали URL при создании вкладки или нашли готовую.
-                        // Явный переход не требуется.
-                        Log("Ожидание загрузки вкладки...");
-                        await Task.Delay(4000);
-
-                        // Проверка: Если мы уже залогинены - не пытаемся вводить пароль
-                        try
-                        {
-                            var checkAuthCmd = new { id = 50, method = "Runtime.evaluate", @params = new { expression = "!!document.querySelector('a[href*=\"action=Logout\"]')" } };
-                            var checkAuthBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(checkAuthCmd));
-                            await ws.SendAsync(new ArraySegment<byte>(checkAuthBytes), WebSocketMessageType.Text, true, CancellationToken.None);
-                            
-                            var authBuffer = new byte[2048];
-                            var authRes = await ws.ReceiveAsync(new ArraySegment<byte>(authBuffer), CancellationToken.None);
-                            string authResponse = Encoding.UTF8.GetString(authBuffer, 0, authRes.Count);
-                            
-                            if (authResponse.Contains("\"value\":true") || authResponse.Contains("\"value\": true"))
-                            {
-                                txtCrmStatus.Text = $"Уже в системе: {DateTime.Now:HH:mm}";
-                                Log("Вкладка уже авторизована. Вход не требуется.");
-                                return;
-                            }
-                        }
-                        catch { }
-
-                        string login = txtCrmLogin.Text;
-                        string password = txtCrmPassword.Password;
-
-                        // Скрипт для ввода данных
-                        string js = $@"
-                            (function() {{
-                                var attempts = 0;
-                                var interval = setInterval(function() {{
-                                    var user = document.querySelector('input[name=""user_name""]');
-                                    var pass = document.querySelector('input[name=""user_password""]');
-                                    var btn = document.querySelector('input[name=""Login""]');
-                                    if (!btn) btn = document.querySelector('input[src*=""btnSignInNEW""]');
-
-                                    if(user && pass) {{
-                                        clearInterval(interval);
-                                        
-                                        user.focus();
-                                        user.value = '{login}';
-                                        user.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                        user.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                        
-                                        pass.focus();
-                                        pass.value = '{password}';
-                                        pass.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                        pass.dispatchEvent(new Event('change', {{ bubbles: true }}));
-
-                                        setTimeout(function() {{
-                                            if(btn) btn.click();
-                                            else {{ var f = pass.closest('form'); if(f) f.submit(); }}
-                                        }}, 500);
-                                    }}
-                                    
-                                    attempts++;
-                                    if (attempts > 20) clearInterval(interval); // Ждем появления полей до 10 сек
-                                }}, 500);
-                            }})();
-                        ";
-
-                        var cmd = new { id = 1, method = "Runtime.evaluate", @params = new { expression = js } };
-                        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cmd));
-                        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-                        Log("JS скрипт ввода данных отправлен.");
                         
-                        txtCrmStatus.Text = "Выполняется вход...";
-                        
-                        // Проверка успешности входа (Polling)
-                        bool isLogged = false;
-                        var buffer = new byte[8192];
-                        Log("Начало проверки входа (цикл 60 сек)...");
-
-                        for (int i = 0; i < 60; i++) // Ждем до 60 секунд
+                        // 3. Внедряем куки через Network.setCookie
+                        foreach (Cookie cookie in cookies)
                         {
-                            await Task.Delay(1000);
-                            try
-                            {
-                                if (weLaunchedIt && _browserProcess != null && _browserProcess.HasExited)
-                                {
-                                    Log("Браузер был закрыт.");
-                                    break;
-                                }
-
-                                if (ws.State != WebSocketState.Open)
-                                {
-                                    Log("Связь с браузером потеряна (WebSocket закрыт).");
-                                    break;
-                                }
-
-                                var checkCmd = new { id = 1000 + i, method = "Runtime.evaluate", @params = new { expression = "document.querySelector('a[href*=\"action=Logout\"]') ? 'AUTH_SUCCESS' : window.location.href" } };
-                                var checkBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(checkCmd));
-                                await ws.SendAsync(new ArraySegment<byte>(checkBytes), WebSocketMessageType.Text, true, CancellationToken.None);
-
-                                var res = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                                string response = Encoding.UTF8.GetString(buffer, 0, res.Count);
-
-                                if (response.Contains("AUTH_SUCCESS"))
-                                {
-                                    isLogged = true;
-                                    Log($"Успешный вход подтвержден (найдена кнопка Выход).");
-                                    break;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Log($"Ошибка проверки ({i}): {ex.Message}");
-                            }
+                            var cookieCmd = new 
+                            { 
+                                id = new Random().Next(1000, 9999), 
+                                method = "Network.setCookie", 
+                                @params = new 
+                                { 
+                                    name = cookie.Name, 
+                                    value = cookie.Value, 
+                                    domain = "crm.iiko.ru", // Принудительно ставим домен
+                                    path = "/",
+                                    expires = (long)(DateTime.UtcNow.AddYears(1) - new DateTime(1970, 1, 1)).TotalSeconds
+                                } 
+                            };
+                            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cookieCmd));
+                            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
                         }
 
-                        if (isLogged)
-                        {
-                            txtCrmStatus.Text = $"Успешный вход: {DateTime.Now:HH:mm}";
-                            Log("Вход выполнен успешно.");
-                            Log("Браузер оставлен открытым.");
-                        }
-                        else
-                        {
-                            txtCrmStatus.Text = "Вход не подтвержден (Таймаут)";
-                            Log("Таймаут ожидания входа.");
-                        }
+                        txtCrmStatus.Text = $"Успешный вход: {DateTime.Now:HH:mm}";
+                        Log("Куки успешно внедрены в браузер.");
+                    }
+                    else
+                    {
+                        txtCrmStatus.Text = "Ошибка входа";
+                        Log("Не удалось выполнить вход через HTTP.");
                     }
                 }
                 else
@@ -1046,6 +1023,31 @@ namespace iikoServiceHelper
             finally
             {
             }
+        }
+
+        private async Task<CookieCollection?> PerformHttpLogin(string login, string password)
+        {
+            try
+            {
+                var handler = new HttpClientHandler { CookieContainer = new CookieContainer(), UseCookies = true, AllowAutoRedirect = true };
+                using var client = new HttpClient(handler);
+                
+                // 1. Загружаем страницу для инициализации сессии
+                await client.GetAsync("http://crm.iiko.ru/");
+
+                // 2. Отправляем форму входа
+                var content = new FormUrlEncodedContent(new[]
+                {
+                    new KeyValuePair<string, string>("user_name", login),
+                    new KeyValuePair<string, string>("user_password", password),
+                    new KeyValuePair<string, string>("Login", "Login") // Эмуляция нажатия кнопки
+                });
+
+                var response = await client.PostAsync("http://crm.iiko.ru/", content);
+                
+                return handler.CookieContainer.GetCookies(new Uri("http://crm.iiko.ru/"));
+            }
+            catch (Exception ex) { Log($"HTTP Login Error: {ex.Message}"); return null; }
         }
 
         private void BtnShowBrowser_Click(object sender, RoutedEventArgs e)

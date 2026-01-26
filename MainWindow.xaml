@@ -353,10 +353,14 @@
                          <TextBlock Text="ДОСТУПНЫЕ УТИЛИТЫ" Foreground="#666666" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" HorizontalAlignment="Left"/>
                          <Button Content="FTP" Click="OpenFtp_Click" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть \\files.resto.lan\" HorizontalAlignment="Right"/>
                      </Grid>
+                     <Button Content="Открыть лог Helpera" Click="OpenLogFolder_Click" HorizontalAlignment="Right" Width="250" Height="20" FontSize="14" Padding="0" Margin="0,-5,5,0" ToolTip="Открыть папку с логами"/>
                      <Button Content="ORDERCHECK" Click="OpenOrderCheck_Click" HorizontalAlignment="Left" Width="250"/>
                      <Button Content="CLEAR.bat" Click="OpenClearBat_Click" HorizontalAlignment="Left" Width="250"/>
 
-                     <TextBlock Text="АВТО-ВХОД CRM (1 ЧАС)" Foreground="#666666" FontSize="12" Margin="5,20,0,10" FontWeight="Bold"/>
+                     <StackPanel Orientation="Horizontal" Margin="5,20,0,10">
+                         <TextBlock Text="АВТО-ВХОД CRM (30 МИН)" Foreground="#666666" FontSize="12" FontWeight="Bold"/>
+                         <TextBlock x:Name="txtLastRun" Foreground="#888888" FontSize="12" Margin="10,0,0,0"/>
+                     </StackPanel>
                      
                      <StackPanel Orientation="Horizontal" Margin="5,0,0,5">
                          <TextBlock Text="Логин:" VerticalAlignment="Center" Foreground="#666666" Margin="0,0,5,0" Width="45"/>
@@ -377,7 +381,7 @@
                      </StackPanel>
                      <TextBlock x:Name="txtCrmStatus" Text="Статус: Отключено" Foreground="#555" FontSize="12" Margin="5,0,0,0"/>
 
-                     <TextBlock Text="ЛОГ ДЕЙСТВИЙ:" Foreground="#666666" FontSize="12" Margin="5,15,0,5" FontWeight="Bold"/>
+                     <TextBlock Text="ЛОГ ДЕЙСТВИЙ CRM:" Foreground="#666666" FontSize="12" Margin="5,15,0,5" FontWeight="Bold"/>
                      <TextBox x:Name="txtLog" Height="120" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" IsReadOnly="True" FontFamily="Consolas" FontSize="11" Background="#1E1E24" Foreground="#AAAAAA" Padding="5"/>
                 </StackPanel>
             </TabItem>
