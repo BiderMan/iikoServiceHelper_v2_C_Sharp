@@ -17,6 +17,7 @@ using System.Runtime.InteropServices;
 using System.Net.WebSockets;
 using System.Text;
 using System.Net;
+using System.Windows.Automation;
 
 namespace iikoServiceHelper
 {
@@ -459,6 +460,7 @@ namespace iikoServiceHelper
 
         private void ExecuteBotCommand(string? args)
         {
+            WaitForInputFocus();
             LogDetailed($"[START] ExecuteBotCommand. Args: {args ?? "null"}");
             var sw = Stopwatch.StartNew();
             _hotkeyManager.IsInputBlocked = true;
@@ -511,6 +513,7 @@ namespace iikoServiceHelper
 
         private void ExecuteReply(string text)
         {
+            WaitForInputFocus();
             LogDetailed($"[START] ExecuteReply. Text length: {text.Length}");
             var sw = Stopwatch.StartNew();
             _hotkeyManager.IsInputBlocked = true;
@@ -544,6 +547,39 @@ namespace iikoServiceHelper
                 }
                 sw.Stop();
                 LogDetailed($"[END] ExecuteReply. Total duration: {sw.ElapsedMilliseconds}ms");
+            }
+        }
+
+        private void WaitForInputFocus()
+        {
+            if (IsInputFocused()) return;
+
+            LogDetailed("Waiting for input focus...");
+            while (!IsInputFocused())
+            {
+                Dispatcher.Invoke(() => _overlay.ShowMessage("Ожидание поля ввода..."));
+                Thread.Sleep(500);
+            }
+            LogDetailed("Input focus detected.");
+            Dispatcher.Invoke(UpdateOverlayMessage);
+        }
+
+        private bool IsInputFocused()
+        {
+            try
+            {
+                var element = AutomationElement.FocusedElement;
+                if (element == null) return false;
+
+                var type = element.Current.ControlType;
+                return type == ControlType.Edit || 
+                       type == ControlType.Document || 
+                       type == ControlType.Custom ||
+                       type == ControlType.Text;
+            }
+            catch 
+            {
+                return true; // В случае ошибки не блокируем выполнение
             }
         }
 
