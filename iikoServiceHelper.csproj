@@ -9,7 +9,7 @@
     <Authors>Yustus</Authors>
     <Company>Yustus</Company>
     <Product>iikoServiceHelper_v2</Product>
-    <Version>2.2.2</Version>
+    <Version>2.2.3</Version>
     <AssemblyName Condition="'$(Configuration)' == 'Release'">iikoServiceHelper_v$(Version)_beta_1</AssemblyName>
     <RuntimeIdentifier Condition="'$(Configuration)' == 'Release'">win-x64</RuntimeIdentifier>
     <PublishSingleFile Condition="'$(Configuration)' == 'Release'">true</PublishSingleFile>
