@@ -94,7 +94,10 @@ namespace iikoServiceHelper
             this.StateChanged += (s, e) =>
             {
                 if (this.WindowState == WindowState.Minimized)
+                {
                     this.Hide();
+                    _trayIcon?.ShowBalloonTip(2000, "iikoServiceHelper", "Приложение работает в фоне", Forms.ToolTipIcon.Info);
+                }
             };
         }
 
