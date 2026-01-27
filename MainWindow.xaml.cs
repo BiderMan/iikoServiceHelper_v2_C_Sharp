@@ -49,6 +49,12 @@ namespace iikoServiceHelper
         private DispatcherTimer _crmTimer;
         private bool _isCrmActive = false;
         private CancellationTokenSource? _crmCts;
+        
+        // Global Alt Blocker Hook
+        private IntPtr _altHookID = IntPtr.Zero;
+        private LowLevelKeyboardProc _altProc;
+        private bool _isAltDown = false;
+        private bool _otherKeyDuringAlt = false;
 
         public MainWindow()
         {
@@ -61,6 +67,9 @@ namespace iikoServiceHelper
             NotesFile = Path.Combine(AppDir, "notes.txt");
             SettingsFile = Path.Combine(AppDir, "settings.json");
             DetailedLogFile = Path.Combine(AppDir, "detailed_log.txt");
+
+            // Инициализируем делегат ДО вызова LoadSettings, чтобы хук мог установиться при старте
+            _altProc = HookCallback;
 
             // Init Logic
             InitializeHotkeys();
@@ -88,6 +97,7 @@ namespace iikoServiceHelper
                 SaveSettings();
                 if (_trayIcon != null) _trayIcon.Visible = false;
                 _hotkeyManager.Dispose();
+                if (_altHookID != IntPtr.Zero) UnhookWindowsHookEx(_altHookID);
                 System.Windows.Application.Current.Shutdown();
             };
 
@@ -235,7 +245,7 @@ namespace iikoServiceHelper
             RegReply("Alt+Add", "Чем могу Вам помочь?", "Чем могу Вам помочь?");
             RegReply("Alt+F",    "Чем могу Вам помочь?", "Чем могу Вам помочь?");
 
-            RegReply("Alt+Z", "Закрываем (выполнена)", "Заявку закрываем как выполненную.\nСпасибо за обращение в iikoService и хорошего Вам дня.\nЕсли возникнут трудности или дополнительные вопросы, просим обратиться к нам повторно.");
+            RegReply("Alt+Z", "Закрываем (выполнена)", "Спасибо за обращение в iikoService и хорошего Вам дня.\nЗаявку закрываем как выполненную.\nЕсли возникнут трудности или дополнительные вопросы, просим обратиться к нам повторно.");
 
             RegReply("Alt+Shift+Z", "От вас не поступила обратная связь.", "От вас не поступила обратная связь.\nСпасибо за обращение в iikoService и хорошего Вам дня.\nЕсли возникнут трудности или дополнительные вопросы, просим обратиться к нам повторно.\nЗаявку закрываем.");
 
@@ -476,6 +486,7 @@ namespace iikoServiceHelper
 
         private void ResetCommandCount_Click(object sender, RoutedEventArgs e)
         {
+            LogDetailed("User manually reset command count.");
             _commandCount = 0;
             txtCommandCount.Text = "0";
         }
@@ -490,7 +501,7 @@ namespace iikoServiceHelper
             {
                 CheckCancellation();
                 // 1. Prepare
-                NativeMethods.ReleaseModifiers();
+                SafeReleaseModifiers();
                 NativeMethods.ReleaseAlphaKeys();
                 LogDetailed("Modifiers released. Sleep 100ms.");
                 Thread.Sleep(100);
@@ -549,7 +560,7 @@ namespace iikoServiceHelper
             {
                 CheckCancellation();
                 // 1. Prepare
-                NativeMethods.ReleaseModifiers();
+                SafeReleaseModifiers();
                 NativeMethods.ReleaseAlphaKeys(); // Fix for Alt+C triggering Ctrl+C
                 LogDetailed("Modifiers released. Sleep 100ms.");
                 Thread.Sleep(100);
@@ -644,6 +655,17 @@ namespace iikoServiceHelper
             }
         }
 
+        private void SafeReleaseModifiers()
+        {
+            // Если Alt физически зажат, отправляем Ctrl перед отпусканием, чтобы предотвратить меню.
+            if (_hotkeyManager.IsAltPhysicallyDown)
+            {
+                NativeMethods.SendKey(0x11); // Ctrl
+                Thread.Sleep(20);
+            }
+            NativeMethods.ReleaseModifiers();
+        }
+
         private void FixLayout()
         {
             WaitForInputFocus();
@@ -654,9 +676,9 @@ namespace iikoServiceHelper
             try
             {
                 CheckCancellation();
-                NativeMethods.ReleaseModifiers();
+                SafeReleaseModifiers();
                 NativeMethods.ReleaseAlphaKeys();
-                Thread.Sleep(50);
+                Thread.Sleep(100); // Увеличиваем паузу для надежности перед Ctrl+C
 
                 // 1. Clear to detect selection
                 Application.Current.Dispatcher.Invoke(() => { try { Clipboard.Clear(); } catch { } });
@@ -986,7 +1008,19 @@ namespace iikoServiceHelper
                         
                         if (settings.WindowState == (int)WindowState.Maximized)
                             this.WindowState = WindowState.Maximized;
+
+                        // Restore Alt Blocker State
+                        if (chkAltBlocker != null) chkAltBlocker.IsChecked = settings.IsAltBlockerEnabled;
+                        UpdateAltHookState(settings.IsAltBlockerEnabled);
                     }
+                    else
+                    {
+                        UpdateAltHookState(true); // Default
+                    }
+                }
+                else
+                {
+                    UpdateAltHookState(true); // Default if no settings file
                 }
             }
             catch { }
@@ -1016,7 +1050,8 @@ namespace iikoServiceHelper
                     WindowLeft = this.WindowState == WindowState.Normal ? this.Left : this.RestoreBounds.Left,
                     WindowWidth = this.WindowState == WindowState.Normal ? this.Width : this.RestoreBounds.Width,
                     WindowHeight = this.WindowState == WindowState.Normal ? this.Height : this.RestoreBounds.Height,
-                    WindowState = (int)stateToSave
+                    WindowState = (int)stateToSave,
+                    IsAltBlockerEnabled = chkAltBlocker?.IsChecked == true
                 };
                 var json = JsonSerializer.Serialize(settings);
                 File.WriteAllText(SettingsFile, json);
@@ -1628,6 +1663,106 @@ namespace iikoServiceHelper
             await Task.Delay(1000);
             win.Close();
         }
+
+        // ================= GLOBAL ALT BLOCKER =================
+
+        private void UpdateAltHookState(bool enable)
+        {
+            if (enable)
+            {
+                if (_altHookID == IntPtr.Zero)
+                {
+                    try
+                    {
+                        _altHookID = SetHook(_altProc);
+                        LogDetailed("Global Alt Hook installed.");
+                    }
+                    catch (Exception ex) { LogDetailed($"Hook Error: {ex.Message}"); }
+                }
+            }
+            else
+            {
+                if (_altHookID != IntPtr.Zero)
+                {
+                    UnhookWindowsHookEx(_altHookID);
+                    _altHookID = IntPtr.Zero;
+                    LogDetailed("Global Alt Hook removed.");
+                }
+            }
+        }
+
+        private void ChkAltBlocker_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is CheckBox chk)
+            {
+                LogDetailed($"User toggled Alt Blocker. New state: {chk.IsChecked}");
+                UpdateAltHookState(chk.IsChecked == true);
+                SaveSettings(); // Сохраняем настройку сразу при изменении
+            }
+        }
+
+        private IntPtr SetHook(LowLevelKeyboardProc proc)
+        {
+            using (Process curProcess = Process.GetCurrentProcess())
+            using (ProcessModule? curModule = curProcess.MainModule)
+            {
+                return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule?.ModuleName), 0);
+            }
+        }
+
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0)
+            {
+                int vkCode = Marshal.ReadInt32(lParam);
+                bool isAlt = (vkCode == 164 || vkCode == 165); // VK_LMENU, VK_RMENU
+
+                if (wParam == (IntPtr)0x0100 || wParam == (IntPtr)0x0104) // WM_KEYDOWN, WM_SYSKEYDOWN
+                {
+                    if (isAlt)
+                    {
+                        _isAltDown = true;
+                        _otherKeyDuringAlt = false;
+                    }
+                    else if (_isAltDown)
+                    {
+                        _otherKeyDuringAlt = true; // Была нажата другая клавиша вместе с Alt
+                    }
+                }
+                else if (wParam == (IntPtr)0x0101 || wParam == (IntPtr)0x0105) // WM_KEYUP, WM_SYSKEYUP
+                {
+                    if (isAlt)
+                    {
+                        _isAltDown = false;
+                        // Не вмешиваемся, если работает макрос (IsInputBlocked), чтобы не сбить Ctrl+C/V
+                        if (!_otherKeyDuringAlt && (_hotkeyManager == null || !_hotkeyManager.IsInputBlocked))
+                        {
+                            // Одиночное нажатие Alt. Отправляем Ctrl, чтобы сбить меню.
+                            NativeMethods.SendKey(0x11); 
+                            LogDetailed("Global Alt Hook: Suppressed Alt menu (Sent Ctrl).");
+                        }
+                    }
+                }
+            }
+            return CallNextHookEx(_altHookID, nCode, wParam, lParam);
+        }
+
+        private const int WH_KEYBOARD_LL = 13;
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string? lpModuleName);
     }
 
     public class HotkeyDisplay
@@ -1648,6 +1783,7 @@ namespace iikoServiceHelper
         public double WindowHeight { get; set; } = 600;
         public int WindowState { get; set; } = 0;
         public string SelectedBrowser { get; set; } = "";
+        public bool IsAltBlockerEnabled { get; set; } = true;
     }
 
     public class BrowserItem
