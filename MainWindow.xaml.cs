@@ -1563,6 +1563,71 @@ namespace iikoServiceHelper
             win.Content = stack;
             win.ShowDialog();
         }
+
+        private void BtnCopyPosM1_Click(object sender, RoutedEventArgs e)
+        {
+            CopyLinkAndNotify("https://m1.iiko.cards/ru-RU/About/DownloadPosInstaller?useRc=False");
+        }
+
+        private void BtnCopyPosM_Click(object sender, RoutedEventArgs e)
+        {
+            CopyLinkAndNotify("https://iiko.cards/ru-RU/About/DownloadPosInstaller?useRc=False");
+        }
+
+        private void CopyLinkAndNotify(string url)
+        {
+            try
+            {
+                Clipboard.SetText(url);
+                ShowTempNotification("Ссылка скопирована");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка копирования: {ex.Message}");
+            }
+        }
+
+        private async void ShowTempNotification(string message)
+        {
+            var win = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                Width = 200,
+                Height = 40,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ShowInTaskbar = false,
+                Topmost = true,
+                IsHitTestVisible = false
+            };
+
+            var border = new Border
+            {
+                Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1E1E24")),
+                BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#B026FF")),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5)
+            };
+
+            var text = new TextBlock
+            {
+                Text = message,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = System.Windows.Media.Brushes.White,
+                FontSize = 12,
+                FontWeight = FontWeights.Bold
+            };
+
+            border.Child = text;
+            win.Content = border;
+
+            win.Show();
+            await Task.Delay(2000);
+            win.Close();
+        }
     }
 
     public class HotkeyDisplay
