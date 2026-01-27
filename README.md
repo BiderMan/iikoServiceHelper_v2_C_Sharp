@@ -36,7 +36,7 @@
 
 ### Где файл?
 Готовые файлы будут лежать здесь:
-`bin\Release\net6.0-windows\win-x64\publish\`
+`bin\Release\net6.0-windows10.0.19041.0\win-x64\publish\`
 (`iikoServiceHelper.exe` или `iikoServiceHelper_Compact.exe`)
 
 ## Логирование и Данные
