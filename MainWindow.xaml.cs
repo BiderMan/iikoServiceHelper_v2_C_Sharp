@@ -90,6 +90,12 @@ namespace iikoServiceHelper
                 _hotkeyManager.Dispose();
                 System.Windows.Application.Current.Shutdown();
             };
+
+            this.StateChanged += (s, e) =>
+            {
+                if (this.WindowState == WindowState.Minimized)
+                    this.Hide();
+            };
         }
 
         private void LogDetailed(string message)
@@ -963,8 +969,15 @@ namespace iikoServiceHelper
                             cmbBrowsers.SelectedValue = settings.SelectedBrowser;
 
                         // Restore Window Position
-                        this.Top = settings.WindowTop;
-                        this.Left = settings.WindowLeft;
+                        if (IsOnScreen(settings.WindowLeft, settings.WindowTop, settings.WindowWidth, settings.WindowHeight))
+                        {
+                            this.Top = settings.WindowTop;
+                            this.Left = settings.WindowLeft;
+                        }
+                        else
+                        {
+                            this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                        }
                         this.Width = settings.WindowWidth;
                         this.Height = settings.WindowHeight;
                         
@@ -974,6 +987,12 @@ namespace iikoServiceHelper
                 }
             }
             catch { }
+        }
+
+        private bool IsOnScreen(double left, double top, double width, double height)
+        {
+            var rect = new System.Drawing.Rectangle((int)left, (int)top, (int)width, (int)height);
+            return Forms.Screen.AllScreens.Any(s => s.WorkingArea.IntersectsWith(rect));
         }
 
         private void SaveSettings()
