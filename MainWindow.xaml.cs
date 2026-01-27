@@ -958,6 +958,10 @@ namespace iikoServiceHelper
                         txtCrmLogin.Text = settings.CrmLogin;
                         txtCrmPassword.Password = settings.CrmPassword;
 
+                        RefreshBrowserList();
+                        if (!string.IsNullOrEmpty(settings.SelectedBrowser))
+                            cmbBrowsers.SelectedValue = settings.SelectedBrowser;
+
                         // Restore Window Position
                         this.Top = settings.WindowTop;
                         this.Left = settings.WindowLeft;
@@ -984,6 +988,7 @@ namespace iikoServiceHelper
                     NotesFontSize = txtNotes.FontSize,
                     CrmLogin = txtCrmLogin.Text,
                     CrmPassword = txtCrmPassword.Password,
+                    SelectedBrowser = cmbBrowsers.SelectedValue as string ?? "",
                     
                     WindowTop = this.WindowState == WindowState.Normal ? this.Top : this.RestoreBounds.Top,
                     WindowLeft = this.WindowState == WindowState.Normal ? this.Left : this.RestoreBounds.Left,
@@ -1014,6 +1019,16 @@ namespace iikoServiceHelper
         // ================= CRM AUTO LOGIN =================
 
         private void CmbBrowsers_DropDownOpened(object sender, EventArgs e)
+        {
+            RefreshBrowserList();
+        }
+
+        private void BtnRefreshBrowsers_Click(object sender, RoutedEventArgs e)
+        {
+            RefreshBrowserList();
+        }
+
+        private void RefreshBrowserList()
         {
             var selectedPath = cmbBrowsers.SelectedValue as string;
             var targetBrowsers = new[] { "msedge", "chrome", "browser", "vivaldi", "opera", "brave", "chromium" };
@@ -1545,6 +1560,7 @@ namespace iikoServiceHelper
         public double WindowWidth { get; set; } = 950;
         public double WindowHeight { get; set; } = 600;
         public int WindowState { get; set; } = 0;
+        public string SelectedBrowser { get; set; } = "";
     }
 
     public class BrowserItem
