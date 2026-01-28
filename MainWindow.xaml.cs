@@ -41,6 +41,7 @@ namespace iikoServiceHelper
         private Forms.ToolStripMenuItem? _pauseMenuItem;
         private Forms.ToolStripMenuItem? _hooksMenuItem;
         private bool _hooksDisabled = false;
+        private DateTime _lastUpdateCheck = DateTime.MinValue;
 
         private readonly Queue<(Action Act, string Name)> _commandQueue = new();
         private readonly object _queueLock = new();
@@ -112,6 +113,9 @@ namespace iikoServiceHelper
                     _trayIcon?.ShowBalloonTip(2000, "iikoServiceHelper", "Приложение работает в фоне", Forms.ToolTipIcon.Info);
                 }
             };
+
+            // Auto-check for updates on startup (Silent)
+            Task.Run(() => CheckForUpdates(isSilent: true));
         }
 
         private void LogDetailed(string message)
@@ -1048,6 +1052,7 @@ namespace iikoServiceHelper
 
                         // Restore Alt Blocker State
                         if (chkAltBlocker != null) chkAltBlocker.IsChecked = settings.IsAltBlockerEnabled;
+                        _lastUpdateCheck = settings.LastUpdateCheck;
                         UpdateAltHookState(settings.IsAltBlockerEnabled);
                     }
                     else
@@ -1088,7 +1093,8 @@ namespace iikoServiceHelper
                     WindowWidth = this.WindowState == WindowState.Normal ? this.Width : this.RestoreBounds.Width,
                     WindowHeight = this.WindowState == WindowState.Normal ? this.Height : this.RestoreBounds.Height,
                     WindowState = (int)stateToSave,
-                    IsAltBlockerEnabled = chkAltBlocker?.IsChecked == true
+                    IsAltBlockerEnabled = chkAltBlocker?.IsChecked == true,
+                    LastUpdateCheck = _lastUpdateCheck
                 };
                 var json = JsonSerializer.Serialize(settings);
                 File.WriteAllText(SettingsFile, json);
@@ -1586,54 +1592,80 @@ namespace iikoServiceHelper
 
         private void ShowCustomMessage(string title, string message, bool isError)
         {
-            var win = new Window
+            Dispatcher.Invoke(() =>
             {
-                Title = title,
-                Width = 350,
-                SizeToContent = SizeToContent.Height,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Owner = this,
-                ResizeMode = ResizeMode.NoResize,
-                Background = (System.Windows.Media.Brush)FindResource("BrushBackground"),
-                Foreground = System.Windows.Media.Brushes.White
-            };
+                var win = new Window
+                {
+                    Title = title,
+                    Width = 350,
+                    SizeToContent = SizeToContent.Height,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Owner = this,
+                    ResizeMode = ResizeMode.NoResize,
+                    WindowStyle = WindowStyle.None,
+                    AllowsTransparency = true,
+                    Background = System.Windows.Media.Brushes.Transparent,
+                    ShowInTaskbar = false
+                };
 
-            var stack = new StackPanel { Margin = new Thickness(20) };
+                Style? btnStyle = null;
+                try { btnStyle = (Style)this.FindResource(typeof(Button)); } catch { }
 
-            var txtHeader = new TextBlock
-            {
-                Text = isError ? "❌ ОШИБКА" : "✅ УСПЕХ",
-                FontSize = 18,
-                FontWeight = FontWeights.Bold,
-                Foreground = isError ? System.Windows.Media.Brushes.IndianRed : System.Windows.Media.Brushes.LightGreen,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 10)
-            };
+                var border = new Border
+                {
+                    Background = (System.Windows.Media.Brush)FindResource("BrushBackground"),
+                    BorderBrush = (System.Windows.Media.Brush)FindResource("BrushAccent"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(20),
+                    Effect = new System.Windows.Media.Effects.DropShadowEffect 
+                    { 
+                        BlurRadius = 20, 
+                        ShadowDepth = 0, 
+                        Opacity = 0.5, 
+                        Color = (System.Windows.Media.Color)FindResource("ColorAccent") 
+                    }
+                };
 
-            var txtMessage = new TextBlock
-            {
-                Text = message,
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 14,
-                TextAlignment = TextAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 20),
-                Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground")
-            };
+                var stack = new StackPanel();
 
-            var btnOk = new Button
-            {
-                Content = "OK",
-                Width = 100,
-                HorizontalAlignment = HorizontalAlignment.Center
-            };
-            btnOk.Click += (s, e) => win.Close();
+                var txtHeader = new TextBlock
+                {
+                    Text = isError ? "❌ ОШИБКА" : "✅ ИНФО",
+                    FontSize = 18,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = isError ? System.Windows.Media.Brushes.IndianRed : System.Windows.Media.Brushes.LightGreen,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 15)
+                };
 
-            stack.Children.Add(txtHeader);
-            stack.Children.Add(txtMessage);
-            stack.Children.Add(btnOk);
+                var txtMessageBlock = new TextBlock
+                {
+                    Text = message,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 14,
+                    TextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 20),
+                    Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground")
+                };
 
-            win.Content = stack;
-            win.ShowDialog();
+                var btnOk = new Button
+                {
+                    Content = "OK",
+                    Width = 100,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Style = btnStyle
+                };
+                btnOk.Click += (s, e) => win.Close();
+
+                stack.Children.Add(txtHeader);
+                stack.Children.Add(txtMessageBlock);
+                stack.Children.Add(btnOk);
+
+                border.Child = stack;
+                win.Content = border;
+                win.ShowDialog();
+            });
         }
 
         private void BtnCopyPosM1_Click(object sender, RoutedEventArgs e)
@@ -1699,6 +1731,280 @@ namespace iikoServiceHelper
             win.Show();
             await Task.Delay(1000);
             win.Close();
+        }
+
+        // ================= UPDATER =================
+
+        private void TxtUpdateLink_Click(object sender, MouseButtonEventArgs e)
+        {
+            txtUpdateLink.Text = "Проверка...";
+            Task.Run(async () => 
+            {
+                await CheckForUpdates(isSilent: false);
+                Dispatcher.Invoke(() => txtUpdateLink.Text = "Обновить");
+            });
+        }
+
+        private async Task CheckForUpdates(bool isSilent)
+        {
+            try
+            {
+                // Daily check logic for silent mode
+                if (isSilent && (DateTime.Now - _lastUpdateCheck).TotalHours < 24)
+                {
+                    return;
+                }
+
+                var currentVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                if (currentVersion == null) return;
+
+                using var client = new HttpClient();
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("iikoServiceHelper");
+                // GitHub API for latest release
+                var json = await client.GetStringAsync("https://api.github.com/repos/BiderMan/iikoServiceHelper_v2_C_Sharp/releases/latest");
+                
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                
+                string tagName = root.GetProperty("tag_name").GetString() ?? "0.0.0";
+                string versionStr = tagName.TrimStart('v'); // Remove 'v' prefix if present
+                
+                if (Version.TryParse(versionStr, out var remoteVersion))
+                {
+                    if (remoteVersion > currentVersion)
+                    {
+                        // Update last check time and save
+                        _lastUpdateCheck = DateTime.Now;
+                        Dispatcher.Invoke(() => SaveSettings());
+
+                        bool userAccepted = ShowUpdateDialog(tagName, currentVersion.ToString());
+                        
+                        if (userAccepted)
+                        {
+                            // Try to find matching asset (e.g. if running Compact, download Compact)
+                            string currentExeName = Path.GetFileName(Process.GetCurrentProcess().MainModule?.FileName ?? "iikoServiceHelper.exe");
+                            string downloadUrl = "";
+                            
+                            if (root.TryGetProperty("assets", out var assets))
+                            {
+                                foreach (var asset in assets.EnumerateArray())
+                                {
+                                    string name = asset.GetProperty("name").GetString() ?? "";
+                                    // Simple logic: if current exe has "Compact", look for "Compact". Else look for exact match or first .exe
+                                    bool isCompact = currentExeName.Contains("Compact", StringComparison.OrdinalIgnoreCase);
+                                    
+                                    if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        if (name.Equals(currentExeName, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                                            break;
+                                        }
+                                        // Fallback: if we haven't found exact match yet, take this one if it matches type
+                                        if (string.IsNullOrEmpty(downloadUrl))
+                                        {
+                                            if (isCompact == name.Contains("Compact", StringComparison.OrdinalIgnoreCase))
+                                                downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!string.IsNullOrEmpty(downloadUrl))
+                            {
+                                await PerformUpdate(downloadUrl);
+                            }
+                            else
+                            {
+                                ShowCustomMessage("Ошибка", "Не удалось найти подходящий файл в релизе.", true);
+                            }
+                        }
+                    }
+                    else if (!isSilent)
+                    {
+                        ShowCustomMessage("Обновление", "У вас установлена последняя версия.", false);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!isSilent) ShowCustomMessage("Ошибка", $"Ошибка проверки обновлений: {ex.Message}", true);
+            }
+        }
+
+        private async Task PerformUpdate(string url)
+        {
+            try
+            {
+                string currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
+                if (string.IsNullOrEmpty(currentExe)) return;
+
+                string currentDir = Path.GetDirectoryName(currentExe) ?? "";
+                string tempExe = Path.Combine(currentDir, "update_temp.exe");
+                string batPath = Path.Combine(currentDir, "update_script.bat");
+
+                // 1. Download
+                Dispatcher.Invoke(() => txtUpdateLink.Text = "Скачивание...");
+                
+                using var client = new HttpClient();
+                using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                
+                var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+                var canReportProgress = totalBytes != -1;
+
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var fileStream = new FileStream(tempExe, FileMode.Create, FileAccess.Write, FileShare.None);
+                
+                var buffer = new byte[8192];
+                long totalRead = 0;
+                int bytesRead;
+
+                Dispatcher.Invoke(() => { pbUpdate.Visibility = Visibility.Visible; pbUpdate.Maximum = 100; pbUpdate.Value = 0; });
+
+                while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer, 0, bytesRead);
+                    totalRead += bytesRead;
+
+                    if (canReportProgress)
+                    {
+                        var progress = (double)totalRead / totalBytes * 100;
+                        Dispatcher.Invoke(() => { pbUpdate.Value = progress; txtUpdateLink.Text = $"Скачивание {progress:F0}%"; });
+                    }
+                }
+                Dispatcher.Invoke(() => { pbUpdate.Visibility = Visibility.Collapsed; });
+
+                // 2. Create Batch Script to replace file and restart
+                // Wait 2 sec, Delete old, Move new to old, Start new, Delete self
+                string script = $@"
+@echo off
+timeout /t 2 /nobreak > NUL
+del ""{currentExe}""
+move ""{tempExe}"" ""{currentExe}""
+start """" ""{currentExe}""
+del ""%~f0""
+";
+                await File.WriteAllTextAsync(batPath, script, Encoding.Default);
+
+                // 3. Execute and Exit
+                var psi = new ProcessStartInfo(batPath) { UseShellExecute = true, CreateNoWindow = true };
+                Process.Start(psi);
+                Application.Current.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                ShowCustomMessage("Ошибка", $"Ошибка при обновлении: {ex.Message}", true);
+                Dispatcher.Invoke(() => { txtUpdateLink.Text = "Обновить"; pbUpdate.Visibility = Visibility.Collapsed; });
+            }
+        }
+
+        private bool ShowUpdateDialog(string newVersion, string currentVersion)
+        {
+            bool result = false;
+            Dispatcher.Invoke(() =>
+            {
+                var win = new Window
+                {
+                    Title = "Доступно обновление",
+                    Width = 400,
+                    SizeToContent = SizeToContent.Height,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Owner = this,
+                    ResizeMode = ResizeMode.NoResize,
+                    WindowStyle = WindowStyle.None,
+                    AllowsTransparency = true,
+                    Background = System.Windows.Media.Brushes.Transparent,
+                    ShowInTaskbar = false
+                };
+
+                // Пытаемся получить стиль кнопок из ресурсов главного окна
+                Style? btnStyle = null;
+                try { btnStyle = (Style)this.FindResource(typeof(Button)); } catch { }
+
+                var border = new Border
+                {
+                    Background = (System.Windows.Media.Brush)FindResource("BrushBackground"),
+                    BorderBrush = (System.Windows.Media.Brush)FindResource("BrushAccent"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(20),
+                    Effect = new System.Windows.Media.Effects.DropShadowEffect 
+                    { 
+                        BlurRadius = 20, 
+                        ShadowDepth = 0, 
+                        Opacity = 0.5, 
+                        Color = (System.Windows.Media.Color)FindResource("ColorAccent") 
+                    }
+                };
+
+                var stack = new StackPanel();
+
+                var txtHeader = new TextBlock
+                {
+                    Text = "🚀 ОБНОВЛЕНИЕ",
+                    FontSize = 20,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = (System.Windows.Media.Brush)FindResource("BrushAccent"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 15)
+                };
+
+                var txtMessage = new TextBlock
+                {
+                    Text = $"Доступна новая версия: {newVersion}\n(Текущая: {currentVersion})",
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 15,
+                    TextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 10),
+                    Foreground = System.Windows.Media.Brushes.White
+                };
+
+                var txtQuestion = new TextBlock
+                {
+                    Text = "Скачать и установить?",
+                    FontSize = 14,
+                    TextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 25),
+                    Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground")
+                };
+
+                var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+
+                var btnYes = new Button 
+                { 
+                    Content = "СКАЧАТЬ", 
+                    Width = 120, 
+                    Margin = new Thickness(0, 0, 15, 0),
+                    Style = btnStyle 
+                };
+                btnYes.Click += (s, e) => { win.DialogResult = true; win.Close(); };
+
+                var btnNo = new Button 
+                { 
+                    Content = "ОТМЕНА", 
+                    Width = 120,
+                    Style = btnStyle,
+                    BorderBrush = System.Windows.Media.Brushes.Gray, 
+                    Foreground = System.Windows.Media.Brushes.Gray 
+                };
+                btnNo.Click += (s, e) => { win.DialogResult = false; win.Close(); };
+
+                btnPanel.Children.Add(btnYes);
+                btnPanel.Children.Add(btnNo);
+
+                stack.Children.Add(txtHeader);
+                stack.Children.Add(txtMessage);
+                stack.Children.Add(txtQuestion);
+                stack.Children.Add(btnPanel);
+
+                border.Child = stack;
+                win.Content = border;
+                
+                // Показываем диалог и ждем результата
+                result = win.ShowDialog() == true;
+            });
+
+            return result;
         }
 
         // ================= GLOBAL ALT BLOCKER =================
@@ -1830,6 +2136,7 @@ namespace iikoServiceHelper
         public int WindowState { get; set; } = 0;
         public string SelectedBrowser { get; set; } = "";
         public bool IsAltBlockerEnabled { get; set; } = true;
+        public DateTime LastUpdateCheck { get; set; } = DateTime.MinValue;
     }
 
     public class BrowserItem

@@ -489,6 +489,26 @@
             </Border>
         </StackPanel>
 
+        <!-- Update Link (Bottom Left) -->
+        <TextBlock x:Name="txtUpdateLink" Text="Обновить" HorizontalAlignment="Left" VerticalAlignment="Bottom" 
+                   Margin="15,5,5,5" Foreground="#666666" FontSize="11" Cursor="Hand" MouseLeftButtonDown="TxtUpdateLink_Click">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
+                            <Setter Property="TextDecorations" Value="Underline"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <!-- Update Progress -->
+        <ProgressBar x:Name="pbUpdate" Width="150" Height="4" VerticalAlignment="Bottom" HorizontalAlignment="Center" 
+                     Margin="0,0,0,10" Visibility="Collapsed"
+                     Background="#25252A" BorderBrush="#3E3E42" Foreground="{StaticResource BrushAccent}"/>
+
         <!-- Credits -->
         <TextBlock Text="by Yustus  " HorizontalAlignment="Right" VerticalAlignment="Bottom" 
                    Margin="15,5,5,5" Foreground="#666666" FontSize="11" IsHitTestVisible="False"/>
