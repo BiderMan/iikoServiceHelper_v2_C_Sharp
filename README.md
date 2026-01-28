@@ -23,10 +23,10 @@
    ```
 
 ### 2. Compact (Компактная)
-Размер: **~3-5 МБ**. Требует установленного **.NET Desktop Runtime 8.0**.
+Размер: **~3-5 МБ**. Требует установленного **.NET Desktop Runtime 6.0**.
 *(Внимание: .NET Framework 4.8 не подходит)*
 
-[Скачать .NET Desktop Runtime 8.0](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+[Скачать .NET Desktop Runtime 6.0](https://dotnet.microsoft.com/en-us/download/dotnet/6.0)
 
 **Авто-проверка:** Если у пользователя нет .NET 8, программа сама покажет окно с предложением скачать его.
 
@@ -36,7 +36,7 @@
 
 ### Где файл?
 Готовые файлы будут лежать здесь:
-`bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\`
+`bin\Release\net6.0-windows10.0.19041.0\publish\`
 (`iikoServiceHelper.exe` или `iikoServiceHelper_Compact.exe`)
 
 ## Логирование и Данные

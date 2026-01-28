@@ -27,4 +27,10 @@
     <AssemblyName>iikoServiceHelper_Compact</AssemblyName>
   </PropertyGroup>
 
+  <Target Name="PublishToGitHub" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release'">
+    <Message Text="Creating GitHub Release for v$(Version)..." Importance="high" />
+    <!-- Создаем релиз и загружаем файл. IgnoreExitCode="true" позволяет не ломать сборку, если релиз с таким тегом уже существует -->
+    <Exec Command="gh release create &quot;$(Version)&quot; &quot;$(PublishDir)$(AssemblyName).exe&quot; --title &quot;$(Product) $(Version)&quot; --target main --generate-notes" IgnoreExitCode="true" />
+  </Target>
+
 </Project>
