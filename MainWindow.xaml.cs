@@ -1054,6 +1054,8 @@ namespace iikoServiceHelper
                         if (chkAltBlocker != null) chkAltBlocker.IsChecked = settings.IsAltBlockerEnabled;
                         _lastUpdateCheck = settings.LastUpdateCheck;
                         UpdateAltHookState(settings.IsAltBlockerEnabled);
+                        _commandCount = settings.CommandCount;
+                        if (txtCommandCount != null) txtCommandCount.Text = _commandCount.ToString();
                     }
                     else
                     {
@@ -1094,7 +1096,8 @@ namespace iikoServiceHelper
                     WindowHeight = this.WindowState == WindowState.Normal ? this.Height : this.RestoreBounds.Height,
                     WindowState = (int)stateToSave,
                     IsAltBlockerEnabled = chkAltBlocker?.IsChecked == true,
-                    LastUpdateCheck = _lastUpdateCheck
+                    LastUpdateCheck = _lastUpdateCheck,
+                    CommandCount = _commandCount
                 };
                 var json = JsonSerializer.Serialize(settings);
                 File.WriteAllText(SettingsFile, json);
@@ -2137,6 +2140,7 @@ del ""%~f0""
         public string SelectedBrowser { get; set; } = "";
         public bool IsAltBlockerEnabled { get; set; } = true;
         public DateTime LastUpdateCheck { get; set; } = DateTime.MinValue;
+        public int CommandCount { get; set; } = 0;
     }
 
     public class BrowserItem
