@@ -31,7 +31,7 @@ namespace iikoServiceHelper
         private readonly object _logLock = new();
 
         private Forms.NotifyIcon? _trayIcon;
-        private HotkeyManager _hotkeyManager;
+        private HotkeyManager? _hotkeyManager;
         private OverlayWindow _overlay;
         private Dictionary<string, Action> _hotkeyActions = new(StringComparer.OrdinalIgnoreCase);
         private ObservableCollection<HotkeyDisplay> _displayItems = new();
@@ -39,6 +39,8 @@ namespace iikoServiceHelper
         private bool _isPaused = false;
         private int _commandCount = 0;
         private Forms.ToolStripMenuItem? _pauseMenuItem;
+        private Forms.ToolStripMenuItem? _hooksMenuItem;
+        private bool _hooksDisabled = false;
 
         private readonly Queue<(Action Act, string Name)> _commandQueue = new();
         private readonly object _queueLock = new();
@@ -97,6 +99,7 @@ namespace iikoServiceHelper
                 SaveSettings();
                 if (_trayIcon != null) _trayIcon.Visible = false;
                 _hotkeyManager.Dispose();
+                _hotkeyManager?.Dispose();
                 if (_altHookID != IntPtr.Zero) UnhookWindowsHookEx(_altHookID);
                 System.Windows.Application.Current.Shutdown();
             };
@@ -161,7 +164,7 @@ namespace iikoServiceHelper
                 Thread.Sleep(100);
                 NativeMethods.ReleaseModifiers();
                 NativeMethods.SendKey(NativeMethods.VK_RETURN);
-                if (_hotkeyManager.IsAltPhysicallyDown)
+                if (_hotkeyManager != null && _hotkeyManager.IsAltPhysicallyDown)
                 {
                     NativeMethods.PressAltDown();
                 }
@@ -301,6 +304,9 @@ namespace iikoServiceHelper
             _pauseMenuItem = new Forms.ToolStripMenuItem("Приостановить", null, (s, e) => TogglePause());
             contextMenu.Items.Add(_pauseMenuItem);
             
+            _hooksMenuItem = new Forms.ToolStripMenuItem("Отключить перехват", null, (s, e) => ToggleHooks());
+            contextMenu.Items.Add(_hooksMenuItem);
+
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Выход", null, (s, e) => { System.Windows.Application.Current.Shutdown(); });
             _trayIcon.ContextMenuStrip = contextMenu;
@@ -312,6 +318,37 @@ namespace iikoServiceHelper
             _isPaused = !_isPaused;
             if (_pauseMenuItem != null) _pauseMenuItem.Text = _isPaused ? "Возобновить" : "Приостановить";
             if (_trayIcon != null) _trayIcon.Text = _isPaused ? "iikoServiceHelper_v2 (Paused)" : "iikoServiceHelper_v2";
+        }
+
+        private void ToggleHooks()
+        {
+            _hooksDisabled = !_hooksDisabled;
+
+            if (_hooksDisabled)
+            {
+                _hotkeyManager?.Dispose();
+                _hotkeyManager = null;
+
+                if (_altHookID != IntPtr.Zero)
+                {
+                    NativeMethods.UnhookWindowsHookEx(_altHookID);
+                    _altHookID = IntPtr.Zero;
+                    LogDetailed("Global Alt Hook removed (Global Pause).");
+                }
+
+                if (_hooksMenuItem != null) _hooksMenuItem.Text = "Включить перехват";
+                if (_trayIcon != null) _trayIcon.Text = "iikoServiceHelper_v2 (Hooks Disabled)";
+            }
+            else
+            {
+                _hotkeyManager = new HotkeyManager();
+                _hotkeyManager.HotkeyHandler = OnGlobalHotkey;
+
+                UpdateAltHookState(chkAltBlocker.IsChecked == true);
+
+                if (_hooksMenuItem != null) _hooksMenuItem.Text = "Отключить перехват";
+                if (_trayIcon != null) _trayIcon.Text = "iikoServiceHelper_v2";
+            }
         }
 
         private void ShowWindow()
@@ -496,7 +533,7 @@ namespace iikoServiceHelper
             WaitForInputFocus();
             LogDetailed($"[START] ExecuteBotCommand. Args: {args ?? "null"}");
             var sw = Stopwatch.StartNew();
-            _hotkeyManager.IsInputBlocked = true;
+            if (_hotkeyManager != null) _hotkeyManager.IsInputBlocked = true;
             try
             {
                 CheckCancellation();
@@ -539,8 +576,8 @@ namespace iikoServiceHelper
             }
             finally
             {
-                _hotkeyManager.IsInputBlocked = false;
-                if (_hotkeyManager.IsAltPhysicallyDown)
+                if (_hotkeyManager != null) _hotkeyManager.IsInputBlocked = false;
+                if (_hotkeyManager != null && _hotkeyManager.IsAltPhysicallyDown)
                 {
                     NativeMethods.PressAltDown();
                     LogDetailed("Restored Alt key.");
@@ -555,7 +592,7 @@ namespace iikoServiceHelper
             WaitForInputFocus();
             LogDetailed($"[START] ExecuteReply. Text length: {text.Length}");
             var sw = Stopwatch.StartNew();
-            _hotkeyManager.IsInputBlocked = true;
+            if (_hotkeyManager != null) _hotkeyManager.IsInputBlocked = true;
             try
             {
                 CheckCancellation();
@@ -582,8 +619,8 @@ namespace iikoServiceHelper
             }
             finally
             {
-                _hotkeyManager.IsInputBlocked = false;
-                if (_hotkeyManager.IsAltPhysicallyDown)
+                if (_hotkeyManager != null) _hotkeyManager.IsInputBlocked = false;
+                if (_hotkeyManager != null && _hotkeyManager.IsAltPhysicallyDown)
                 {
                     NativeMethods.PressAltDown();
                     LogDetailed("Restored Alt key.");
@@ -658,7 +695,7 @@ namespace iikoServiceHelper
         private void SafeReleaseModifiers()
         {
             // Если Alt физически зажат, отправляем Ctrl перед отпусканием, чтобы предотвратить меню.
-            if (_hotkeyManager.IsAltPhysicallyDown)
+            if (_hotkeyManager != null && _hotkeyManager.IsAltPhysicallyDown)
             {
                 NativeMethods.SendKey(0x11); // Ctrl
                 Thread.Sleep(20);
@@ -671,7 +708,7 @@ namespace iikoServiceHelper
             WaitForInputFocus();
             LogDetailed("[START] FixLayout.");
             var sw = Stopwatch.StartNew();
-            _hotkeyManager.IsInputBlocked = true;
+            if (_hotkeyManager != null) _hotkeyManager.IsInputBlocked = true;
 
             try
             {
@@ -717,8 +754,8 @@ namespace iikoServiceHelper
             }
             finally
             {
-                _hotkeyManager.IsInputBlocked = false;
-                if (_hotkeyManager.IsAltPhysicallyDown)
+                if (_hotkeyManager != null) _hotkeyManager.IsInputBlocked = false;
+                if (_hotkeyManager != null && _hotkeyManager.IsAltPhysicallyDown)
                 {
                     NativeMethods.PressAltDown();
                 }
@@ -1697,6 +1734,10 @@ namespace iikoServiceHelper
             {
                 LogDetailed($"User toggled Alt Blocker. New state: {chk.IsChecked}");
                 UpdateAltHookState(chk.IsChecked == true);
+                if (!_hooksDisabled)
+                {
+                    UpdateAltHookState(chk.IsChecked == true);
+                }
                 SaveSettings(); // Сохраняем настройку сразу при изменении
             }
         }
@@ -1717,7 +1758,7 @@ namespace iikoServiceHelper
             if (nCode >= 0)
             {
                 int vkCode = Marshal.ReadInt32(lParam);
-                bool isAlt = (vkCode == 164 || vkCode == 165); // VK_LMENU, VK_RMENU
+                bool isAlt = (vkCode == 164 || vkCode == 165 || vkCode == 18); // VK_LMENU, VK_RMENU, VK_MENU
 
                 if (wParam == (IntPtr)0x0100 || wParam == (IntPtr)0x0104) // WM_KEYDOWN, WM_SYSKEYDOWN
                 {
@@ -1725,6 +1766,11 @@ namespace iikoServiceHelper
                     {
                         _isAltDown = true;
                         _otherKeyDuringAlt = false;
+
+                        // Если Shift уже нажат (Shift+Alt), помечаем как взаимодействие,
+                        // чтобы не отправлять Ctrl при отпускании Alt (иначе ломается переключение языка)
+                        if ((NativeMethods.GetAsyncKeyState(NativeMethods.VK_SHIFT) & 0x8000) != 0)
+                            _otherKeyDuringAlt = true;
                     }
                     else if (_isAltDown)
                     {

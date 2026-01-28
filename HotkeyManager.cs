@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Windows.Input;
+using System.Windows.Forms;
 
 namespace iikoServiceHelper
 {
@@ -11,6 +11,8 @@ namespace iikoServiceHelper
         public Func<string, bool>? HotkeyHandler; // Return true to suppress key
         public bool IsInputBlocked { get; set; }
         public bool IsAltPhysicallyDown { get; private set; }
+        public bool IsCtrlPhysicallyDown { get; private set; }
+        public bool IsShiftPhysicallyDown { get; private set; }
 
         private const int WH_KEYBOARD_LL = 13;
         private const int WM_KEYDOWN = 0x0100;
@@ -23,6 +25,11 @@ namespace iikoServiceHelper
 
         public HotkeyManager()
         {
+            // Инициализируем состояние (на случай, если клавиши уже зажаты при старте)
+            IsAltPhysicallyDown = (NativeMethods.GetAsyncKeyState(18) & 0x8000) != 0;
+            IsCtrlPhysicallyDown = (NativeMethods.GetAsyncKeyState(17) & 0x8000) != 0;
+            IsShiftPhysicallyDown = (NativeMethods.GetAsyncKeyState(16) & 0x8000) != 0;
+
             _proc = HookCallback;
             _hookId = SetHook(_proc);
         }
@@ -39,46 +46,48 @@ namespace iikoServiceHelper
         {
             if (nCode >= 0)
             {
-                // Track Alt Physical State
                 int vkCode = Marshal.ReadInt32(lParam);
-                if (vkCode == 164 || vkCode == 165 || vkCode == 18) // VK_LMENU, VK_RMENU, VK_MENU
+                int flags = Marshal.ReadInt32(lParam, 8);
+                bool isInjected = (flags & 0x10) != 0;
+
+                // Отслеживаем ФИЗИЧЕСКОЕ состояние модификаторов (игнорируем программные нажатия)
+                if (!isInjected)
                 {
-                    int altFlags = Marshal.ReadInt32(lParam, 8);
-                    if ((altFlags & 0x10) == 0) // Not injected
-                    {
-                        if (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN)
-                            IsAltPhysicallyDown = true;
-                        else if (wParam == (IntPtr)WM_KEYUP || wParam == (IntPtr)WM_SYSKEYUP)
-                            IsAltPhysicallyDown = false;
-                    }
+                    bool isDown = (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN);
+                    if (vkCode == 164 || vkCode == 165 || vkCode == 18) IsAltPhysicallyDown = isDown;
+                    if (vkCode == 162 || vkCode == 163 || vkCode == 17) IsCtrlPhysicallyDown = isDown;
+                    if (vkCode == 160 || vkCode == 161 || vkCode == 16) IsShiftPhysicallyDown = isDown;
                 }
 
                 if (wParam != (IntPtr)WM_KEYDOWN && wParam != (IntPtr)WM_SYSKEYDOWN)
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
 
-                int flags = Marshal.ReadInt32(lParam, 8);
-                if ((flags & 0x10) != 0) // Ignore injected keys (LLKHF_INJECTED)
+                // Игнорируем инжектированные клавиши для определения хоткеев
+                if (isInjected)
                     return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
 
-                Key key = KeyInterop.KeyFromVirtualKey(vkCode);
+                Keys key = (Keys)vkCode;
 
                 // Ignore modifier keys themselves
-                if (key != Key.LeftAlt && key != Key.RightAlt && 
-                    key != Key.LeftCtrl && key != Key.RightCtrl && 
-                    key != Key.LeftShift && key != Key.RightShift &&
-                    key != Key.LWin && key != Key.RWin && key != Key.System)
+                bool isModifier = (key == Keys.LShiftKey || key == Keys.RShiftKey || 
+                                   key == Keys.LControlKey || key == Keys.RControlKey ||
+                                   key == Keys.LMenu || key == Keys.RMenu ||
+                                   key == Keys.LWin || key == Keys.RWin ||
+                                   key == Keys.ControlKey || key == Keys.ShiftKey || key == Keys.Menu);
+
+                if (!isModifier)
                 {
                     var parts = new List<string>();
                     
-                    // Check modifiers using GetKeyState for accuracy
-                    bool alt = IsAltPhysicallyDown || (NativeMethods.GetAsyncKeyState(NativeMethods.VK_MENU) & 0x8000) != 0;
-                    bool ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_CONTROL) & 0x8000) != 0;
-                    bool shift = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_SHIFT) & 0x8000) != 0;
+                    // Используем только физическое состояние, чтобы избежать ложных срабатываний от наших же макросов
+                    bool alt = IsAltPhysicallyDown;
+                    bool ctrl = IsCtrlPhysicallyDown;
+                    bool shift = IsShiftPhysicallyDown;
 
                     if (ctrl) parts.Add("Ctrl");
                     if (alt) parts.Add("Alt");
                     if (shift) parts.Add("Shift");
-                    
+
                     parts.Add(key.ToString());
 
                     string combo = string.Join("+", parts);
