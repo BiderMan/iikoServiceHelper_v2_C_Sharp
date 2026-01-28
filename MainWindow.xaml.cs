@@ -1815,7 +1815,7 @@ namespace iikoServiceHelper
 
                             if (!string.IsNullOrEmpty(downloadUrl))
                             {
-                                await PerformUpdate(downloadUrl);
+                                await PerformUpdate(downloadUrl, tagName);
                             }
                             else
                             {
@@ -1835,16 +1835,13 @@ namespace iikoServiceHelper
             }
         }
 
-        private async Task PerformUpdate(string url)
+        private async Task PerformUpdate(string url, string version)
         {
             try
             {
-                string currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
-                if (string.IsNullOrEmpty(currentExe)) return;
-
-                string currentDir = Path.GetDirectoryName(currentExe) ?? "";
-                string tempExe = Path.Combine(currentDir, "update_temp.exe");
-                string batPath = Path.Combine(currentDir, "update_script.bat");
+                string currentDir = AppDomain.CurrentDomain.BaseDirectory;
+                string newFileName = $"iikoServiceHelper_v{version}.exe";
+                string savePath = Path.Combine(currentDir, newFileName);
 
                 // 1. Download
                 Dispatcher.Invoke(() => txtUpdateLink.Text = "Скачивание...");
@@ -1856,7 +1853,7 @@ namespace iikoServiceHelper
                 var canReportProgress = totalBytes != -1;
 
                 using var stream = await response.Content.ReadAsStreamAsync();
-                using var fileStream = new FileStream(tempExe, FileMode.Create, FileAccess.Write, FileShare.None);
+                using var fileStream = new FileStream(savePath, FileMode.Create, FileAccess.Write, FileShare.None);
                 
                 var buffer = new byte[8192];
                 long totalRead = 0;
@@ -1875,24 +1872,10 @@ namespace iikoServiceHelper
                         Dispatcher.Invoke(() => { pbUpdate.Value = progress; txtUpdateLink.Text = $"Скачивание {progress:F0}%"; });
                     }
                 }
-                Dispatcher.Invoke(() => { pbUpdate.Visibility = Visibility.Collapsed; });
+                Dispatcher.Invoke(() => { pbUpdate.Visibility = Visibility.Collapsed; txtUpdateLink.Text = "Обновить"; });
 
-                // 2. Create Batch Script to replace file and restart
-                // Wait 2 sec, Delete old, Move new to old, Start new, Delete self
-                string script = $@"
-@echo off
-timeout /t 2 /nobreak > NUL
-del ""{currentExe}""
-move ""{tempExe}"" ""{currentExe}""
-start """" ""{currentExe}""
-del ""%~f0""
-";
-                await File.WriteAllTextAsync(batPath, script, Encoding.Default);
-
-                // 3. Execute and Exit
-                var psi = new ProcessStartInfo(batPath) { UseShellExecute = true, CreateNoWindow = true };
-                Process.Start(psi);
-                Application.Current.Shutdown();
+                ShowCustomMessage("Обновление", $"Файл успешно скачан:\n{newFileName}", false);
+                try { Process.Start("explorer.exe", $"/select,\"{savePath}\""); } catch { }
             }
             catch (Exception ex)
             {
