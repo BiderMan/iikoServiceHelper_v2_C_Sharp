@@ -14,12 +14,6 @@ namespace iikoServiceHelper
         public bool IsCtrlPhysicallyDown { get; private set; }
         public bool IsShiftPhysicallyDown { get; private set; }
 
-        private const int WH_KEYBOARD_LL = 13;
-        private const int WM_KEYDOWN = 0x0100;
-        private const int WM_SYSKEYDOWN = 0x0104;
-        private const int WM_KEYUP = 0x0101;
-        private const int WM_SYSKEYUP = 0x0105;
-
         private readonly NativeMethods.LowLevelKeyboardProc _proc;
         private readonly IntPtr _hookId;
 
@@ -38,8 +32,8 @@ namespace iikoServiceHelper
         {
             using var curProcess = Process.GetCurrentProcess();
             using var curModule = curProcess.MainModule;
-            return NativeMethods.SetWindowsHookEx(WH_KEYBOARD_LL, proc,
-                NativeMethods.GetModuleHandle(curModule?.ModuleName ?? ""), 0);
+            // Pass curModule?.ModuleName directly. If it's null, GetModuleHandle returns the handle for the current process.
+            return NativeMethods.SetWindowsHookEx(NativeMethods.WH_KEYBOARD_LL, proc, NativeMethods.GetModuleHandle(curModule?.ModuleName), 0);
         }
 
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -49,6 +43,11 @@ namespace iikoServiceHelper
                 int vkCode = Marshal.ReadInt32(lParam);
                 int flags = Marshal.ReadInt32(lParam, 8);
                 bool isInjected = (flags & 0x10) != 0;
+
+                const int WM_KEYDOWN = 0x0100;
+                const int WM_SYSKEYDOWN = 0x0104;
+                // const int WM_KEYUP = 0x0101;
+                // const int WM_SYSKEYUP = 0x0105;
 
                 // Отслеживаем ФИЗИЧЕСКОЕ состояние модификаторов (игнорируем программные нажатия)
                 if (!isInjected)

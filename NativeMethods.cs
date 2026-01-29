@@ -174,6 +174,8 @@ namespace iikoServiceHelper
         }
 
         // --- HOOKS ---
+        public const int WH_KEYBOARD_LL = 13;
+
         public delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
@@ -187,7 +189,7 @@ namespace iikoServiceHelper
         public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        public static extern IntPtr GetModuleHandle(string lpModuleName);
+        public static extern IntPtr GetModuleHandle(string? lpModuleName);
         
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int vKey);
