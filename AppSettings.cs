@@ -16,5 +16,6 @@ namespace iikoServiceHelper.Models
         public bool IsAltBlockerEnabled { get; set; } = true;
         public DateTime LastUpdateCheck { get; set; } = DateTime.MinValue;
         public int CommandCount { get; set; } = 0;
+        public bool IsLightTheme { get; set; } = false;
     }
 }

@@ -20,6 +20,8 @@ using System.Windows.Automation;
 using iikoServiceHelper.Services;
 using iikoServiceHelper.Models;
 using iikoServiceHelper.Utils;
+using System.Text.Encodings.Web;
+using System.Text.Unicode;
 
 namespace iikoServiceHelper
 {
@@ -29,6 +31,7 @@ namespace iikoServiceHelper
         private readonly string AppDir;
         private readonly string NotesFile;
         private readonly string SettingsFile;
+        private readonly string ThemeSettingsFile;
         private readonly string DetailedLogFile;
         private readonly object _logLock = new();
 
@@ -37,10 +40,11 @@ namespace iikoServiceHelper
         private Dictionary<string, Action> _hotkeyActions = new(StringComparer.OrdinalIgnoreCase);
         private ObservableCollection<HotkeyDisplay> _displayItems = new();
         
-        private volatile bool _isPaused = false;
         private int _commandCount = 0;
         private bool _hooksDisabled = false;
         private DateTime _lastUpdateCheck = DateTime.MinValue;
+        private bool _isLightTheme = false;
+        private ThemeSettings _themeSettings = new ThemeSettings();
         
         private readonly CommandExecutionService _commandExecutionService;
         private readonly UpdateService _updateService;
@@ -61,6 +65,7 @@ namespace iikoServiceHelper
             Directory.CreateDirectory(AppDir);
             NotesFile = Path.Combine(AppDir, "notes.txt");
             SettingsFile = Path.Combine(AppDir, "settings.json");
+            ThemeSettingsFile = Path.Combine(AppDir, "theme_colors.json");
             DetailedLogFile = Path.Combine(AppDir, "detailed_log.txt");
 
             // Init Services
@@ -70,12 +75,13 @@ namespace iikoServiceHelper
             _crmAutoLoginService = new CrmAutoLoginService();
 
             // UI-dependent services
-            _trayIconService = new TrayIconService(ShowWindow, TogglePause, ToggleHooks, () => System.Windows.Application.Current.Shutdown());
+            _trayIconService = new TrayIconService(ShowWindow, ToggleHooks, () => System.Windows.Application.Current.Shutdown());
             _altBlockerService = new AltBlockerService(_hotkeyManager, LogDetailed);
 
             // Init Logic
             InitializeHotkeys();
             LoadNotes();
+            LoadThemeSettings();
             LoadSettings();
             InitializeTempNotificationPopup();
 
@@ -128,15 +134,12 @@ namespace iikoServiceHelper
                 Name = "TempNotificationText",
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = System.Windows.Media.Brushes.White,
                 FontSize = 12,
                 FontWeight = FontWeights.Bold
             };
 
             var border = new Border
             {
-                Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1E1E24")),
-                BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#B026FF")),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(12, 6, 12, 6),
@@ -233,6 +236,11 @@ namespace iikoServiceHelper
                         // CrmIdInputDialog - это кастомное окно для ввода ID.
                         var dlg = new CrmIdInputDialog();
                         dlg.Owner = Application.Current.MainWindow;
+                        
+                        dlg.Resources.MergedDictionaries.Add(this.Resources);
+                        dlg.Background = (System.Windows.Media.Brush)this.FindResource("BrushBackground");
+                        dlg.Foreground = (System.Windows.Media.Brush)this.FindResource("BrushForeground");
+
                         if (dlg.ShowDialog() == true) result = dlg.ResultIds;
                     }
                     catch (Exception ex)
@@ -257,12 +265,6 @@ namespace iikoServiceHelper
             }
         }
 
-        private void TogglePause()
-        {
-            _isPaused = !_isPaused;
-            _trayIconService.UpdateState(_isPaused, _hooksDisabled);
-        }
-
         private void ToggleHooks()
         {
             _hooksDisabled = !_hooksDisabled;
@@ -279,7 +281,7 @@ namespace iikoServiceHelper
                 _altBlockerService = new AltBlockerService(_hotkeyManager, LogDetailed);
                 UpdateAltHookState(chkAltBlocker.IsChecked == true);
             }
-            _trayIconService.UpdateState(_isPaused, _hooksDisabled);
+            _trayIconService.UpdateState(_hooksDisabled);
         }
 
         private void ShowWindow()
@@ -293,8 +295,6 @@ namespace iikoServiceHelper
 
         private bool OnGlobalHotkey(string keyCombo)
         {
-            if (_isPaused) return false;
-    
             Debug.WriteLine($"Detected: {keyCombo}"); // Debugging
             if (_hotkeyActions.TryGetValue(keyCombo, out var action))
             {
@@ -577,6 +577,27 @@ namespace iikoServiceHelper
             if (txtNotes.FontSize > 8) txtNotes.FontSize -= 1;
         }
 
+        private void LoadThemeSettings()
+        {
+            try
+            {
+                if (File.Exists(ThemeSettingsFile))
+                {
+                    var json = File.ReadAllText(ThemeSettingsFile);
+                    var settings = JsonSerializer.Deserialize<ThemeSettings>(json);
+                    if (settings != null)
+                    {
+                        _themeSettings = settings;
+                    }
+                }
+                else
+                {
+                    SaveThemeSettings();
+                }
+            }
+            catch { }
+        }
+
         private void LoadSettings()
         {
             try
@@ -618,6 +639,9 @@ namespace iikoServiceHelper
                         UpdateAltHookState(settings.IsAltBlockerEnabled);
                         _commandCount = settings.CommandCount;
                         if (txtCommandCount != null) txtCommandCount.Text = _commandCount.ToString();
+
+                        _isLightTheme = settings.IsLightTheme;
+                        ApplyTheme(_isLightTheme);
                     }
                     else
                     {
@@ -661,7 +685,8 @@ namespace iikoServiceHelper
                     WindowState = (int)stateToSave,
                     IsAltBlockerEnabled = chkAltBlocker?.IsChecked == true,
                     LastUpdateCheck = _lastUpdateCheck,
-                    CommandCount = _commandCount
+                    CommandCount = _commandCount,
+                    IsLightTheme = _isLightTheme
                 };
                 var json = JsonSerializer.Serialize(settings);
                 File.WriteAllText(SettingsFile, json);
@@ -759,8 +784,8 @@ namespace iikoServiceHelper
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1E1E24")),
-                Foreground = System.Windows.Media.Brushes.White
+                Background = (System.Windows.Media.Brush)FindResource("BrushBackground"),
+                Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground")
             };
 
             var stack = new StackPanel { Margin = new Thickness(20) };
@@ -771,7 +796,7 @@ namespace iikoServiceHelper
                 TextWrapping = TextWrapping.Wrap,
                 IsReadOnly = true,
                 Background = System.Windows.Media.Brushes.Transparent,
-                Foreground = System.Windows.Media.Brushes.White,
+                Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground"),
                 BorderThickness = new Thickness(0),
                 FontSize = 14,
                 FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
@@ -915,8 +940,13 @@ namespace iikoServiceHelper
         {
             if (_tempNotificationPopup == null || _tempNotificationTimer == null) return;
 
-            if ((_tempNotificationPopup.Child as Border)?.Child is TextBlock textBlock)
+            if (_tempNotificationPopup.Child is Border border && border.Child is TextBlock textBlock)
             {
+                // Обновляем цвета под текущую тему
+                border.Background = (System.Windows.Media.Brush)FindResource("BrushBackground");
+                border.BorderBrush = (System.Windows.Media.Brush)FindResource("BrushAccent");
+                textBlock.Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground");
+                
                 textBlock.Text = message;
             }
             
@@ -1001,7 +1031,7 @@ namespace iikoServiceHelper
                     FontSize = 15,
                     TextAlignment = TextAlignment.Center,
                     Margin = new Thickness(0, 0, 0, 10),
-                    Foreground = System.Windows.Media.Brushes.White
+                    Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground")
                 };
 
                 var txtQuestion = new TextBlock
@@ -1076,6 +1106,135 @@ namespace iikoServiceHelper
                 UpdateAltHookState(chk.IsChecked == true);
                 SaveSettings(); // Сохраняем настройку сразу при изменении
             }
+        }
+
+        // ================= THEME SWITCHER =================
+
+        private void BtnThemeSwitch_Click(object sender, RoutedEventArgs e)
+        {
+            _isLightTheme = !_isLightTheme;
+            ApplyTheme(_isLightTheme);
+            SaveSettings();
+        }
+
+        private void BtnResetThemes_Click(object sender, RoutedEventArgs e)
+        {
+            bool confirmed = false;
+            
+            var win = new Window
+            {
+                Title = "Сброс тем",
+                Width = 350,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                ShowInTaskbar = false
+            };
+
+            win.Resources.MergedDictionaries.Add(this.Resources);
+
+            Style? btnStyle = null;
+            try { btnStyle = (Style)this.FindResource(typeof(Button)); } catch { }
+
+            var border = new Border
+            {
+                Background = (System.Windows.Media.Brush)FindResource("BrushWindowBackground"),
+                BorderBrush = (System.Windows.Media.Brush)FindResource("BrushAccent"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(20),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect 
+                { 
+                    BlurRadius = 20, 
+                    ShadowDepth = 0, 
+                    Opacity = 0.5, 
+                    Color = (System.Windows.Media.Color)FindResource("ColorAccent") 
+                }
+            };
+
+            var stack = new StackPanel();
+
+            var txtHeader = new TextBlock
+            {
+                Text = "❓ СБРОС ТЕМ",
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Foreground = (System.Windows.Media.Brush)FindResource("BrushAccent"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+
+            var txtMessage = new TextBlock
+            {
+                Text = "Сбросить цвета тем к стандартным?",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 14,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 20),
+                Foreground = (System.Windows.Media.Brush)FindResource("BrushForeground")
+            };
+
+            var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+
+            var btnYes = new Button 
+            { 
+                Content = "ДА", 
+                Width = 100, 
+                Margin = new Thickness(0, 0, 15, 0),
+                Style = btnStyle 
+            };
+            btnYes.Click += (s, args) => { confirmed = true; win.Close(); };
+
+            var btnNo = new Button 
+            { 
+                Content = "НЕТ", 
+                Width = 100,
+                Style = btnStyle,
+                BorderBrush = System.Windows.Media.Brushes.Gray, 
+                Foreground = System.Windows.Media.Brushes.Gray 
+            };
+            btnNo.Click += (s, args) => { confirmed = false; win.Close(); };
+
+            btnPanel.Children.Add(btnYes);
+            btnPanel.Children.Add(btnNo);
+
+            stack.Children.Add(txtHeader);
+            stack.Children.Add(txtMessage);
+            stack.Children.Add(btnPanel);
+
+            border.Child = stack;
+            win.Content = border;
+            
+            win.ShowDialog();
+
+            if (confirmed)
+            {
+                _themeSettings = new ThemeSettings();
+                SaveThemeSettings();
+                ApplyTheme(_isLightTheme);
+            }
+        }
+
+        private void SaveThemeSettings()
+        {
+            try
+            {
+                var options = new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+                var json = JsonSerializer.Serialize(_themeSettings, options);
+                File.WriteAllText(ThemeSettingsFile, json);
+            }
+            catch { }
+        }
+
+        private void ApplyTheme(bool isLight)
+        {
+            var themeSet = isLight ? _themeSettings.LightTheme : _themeSettings.DarkTheme;
+            ThemeService.ApplyTheme(this.Resources, themeSet);
+            if (btnThemeSwitch != null) btnThemeSwitch.Content = isLight ? "☾" : "☀";
         }
     }
 }

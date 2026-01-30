@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using Forms = System.Windows.Forms;
 
 namespace iikoServiceHelper.Services
@@ -6,10 +7,9 @@ namespace iikoServiceHelper.Services
     public class TrayIconService : IDisposable
     {
         private readonly Forms.NotifyIcon _trayIcon;
-        private readonly Forms.ToolStripMenuItem _pauseMenuItem;
         private readonly Forms.ToolStripMenuItem _hooksMenuItem;
 
-        public TrayIconService(Action showWindowAction, Action togglePauseAction, Action toggleHooksAction, Action exitAction)
+        public TrayIconService(Action showWindowAction, Action toggleHooksAction, Action exitAction)
         {
             System.Drawing.Icon trayIcon;
             try
@@ -35,35 +35,49 @@ namespace iikoServiceHelper.Services
             };
 
             var contextMenu = new Forms.ContextMenuStrip();
-            contextMenu.Items.Add("Развернуть", null, (s, e) => showWindowAction());
+            
+            // Применяем темную тему
+            contextMenu.Renderer = new NoHighlightRenderer();
+            contextMenu.BackColor = Color.FromArgb(30, 30, 36); // #1E1E24
+            contextMenu.ForeColor = Color.WhiteSmoke;
 
-            _pauseMenuItem = new Forms.ToolStripMenuItem("Приостановить", null, (s, e) => togglePauseAction());
-            contextMenu.Items.Add(_pauseMenuItem);
+            // Хелпер для создания пунктов меню
+            Forms.ToolStripMenuItem AddItem(string text, Action onClick)
+            {
+                var item = new Forms.ToolStripMenuItem(text);
+                item.Click += (s, e) => onClick();
+                item.ForeColor = Color.WhiteSmoke;
+                contextMenu.Items.Add(item);
+                return item;
+            }
 
-            _hooksMenuItem = new Forms.ToolStripMenuItem("Отключить перехват", null, (s, e) => toggleHooksAction());
-            contextMenu.Items.Add(_hooksMenuItem);
+            AddItem("Развернуть", showWindowAction);
+            _hooksMenuItem = AddItem("Отключить перехват", toggleHooksAction);
 
-            contextMenu.Items.Add("-");
-            contextMenu.Items.Add("Выход", null, (s, e) => exitAction());
+            contextMenu.Items.Add(new Forms.ToolStripSeparator());
+            AddItem("Выход", exitAction);
+
             _trayIcon.ContextMenuStrip = contextMenu;
             _trayIcon.DoubleClick += (s, e) => showWindowAction();
+
+            contextMenu.MouseLeave += (s, e) =>
+            {
+                if (!contextMenu.Bounds.Contains(Forms.Cursor.Position))
+                {
+                    contextMenu.Close();
+                }
+            };
         }
 
-        public void UpdateState(bool isPaused, bool hooksDisabled)
+        public void UpdateState(bool hooksDisabled)
         {
             if (hooksDisabled)
             {
                 _hooksMenuItem.Text = "Включить перехват";
                 _trayIcon.Text = "iikoServiceHelper_v2 (Hooks Disabled)";
             }
-            else if (isPaused)
-            {
-                _pauseMenuItem.Text = "Возобновить";
-                _trayIcon.Text = "iikoServiceHelper_v2 (Paused)";
-            }
             else
             {
-                _pauseMenuItem.Text = "Приостановить";
                 _hooksMenuItem.Text = "Отключить перехват";
                 _trayIcon.Text = "iikoServiceHelper_v2";
             }
@@ -77,6 +91,42 @@ namespace iikoServiceHelper.Services
         public void Dispose()
         {
             _trayIcon?.Dispose();
+        }
+
+        // Кастомный рендерер для полного отключения подсветки
+        private class NoHighlightRenderer : Forms.ToolStripProfessionalRenderer
+        {
+            public NoHighlightRenderer() : base(new DarkColorTable()) { }
+
+            protected override void OnRenderMenuItemBackground(Forms.ToolStripItemRenderEventArgs e)
+            {
+                // Рисуем фон всегда одним цветом, игнорируя наведение мыши
+                var rc = new Rectangle(Point.Empty, e.Item.Size);
+                using (var brush = new SolidBrush(Color.FromArgb(30, 30, 36))) // #1E1E24
+                {
+                    e.Graphics.FillRectangle(brush, rc);
+                }
+            }
+        }
+
+        // Класс для стилизации темного меню
+        private class DarkColorTable : Forms.ProfessionalColorTable
+        {
+            private readonly Color _backColor = Color.FromArgb(30, 30, 36); // #1E1E24
+            private readonly Color _borderColor = Color.FromArgb(62, 62, 66);
+            private readonly Color _selectionColor = Color.FromArgb(30, 30, 36);
+
+            public override Color MenuItemSelected => _selectionColor;
+            public override Color MenuItemBorder => _selectionColor;
+            public override Color MenuBorder => _borderColor;
+            public override Color MenuItemSelectedGradientBegin => _selectionColor;
+            public override Color MenuItemSelectedGradientEnd => _selectionColor;
+            public override Color MenuItemPressedGradientBegin => _selectionColor;
+            public override Color MenuItemPressedGradientEnd => _selectionColor;
+            public override Color ImageMarginGradientBegin => _backColor;
+            public override Color ImageMarginGradientMiddle => _backColor;
+            public override Color ImageMarginGradientEnd => _backColor;
+            public override Color ToolStripDropDownBackground => _backColor;
         }
     }
 }
