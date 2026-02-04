@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Media;
 using iikoServiceHelper.Models;
@@ -61,21 +62,28 @@ namespace iikoServiceHelper.Services
                 var color = (Color)ColorConverter.ConvertFromString(colorString);
                 return new SolidColorBrush(color);
             }
-            catch
+            catch (Exception ex)
             {
+                // Логируем ошибку парсинга цвета
+                System.Diagnostics.Debug.WriteLine($"Failed to parse color '{colorString}': {ex.Message}");
                 return Brushes.Transparent;
             }
         }
 
         private static Color ParseColor(string colorString)
         {
-            try 
+            try
             {
                 if (string.IsNullOrWhiteSpace(colorString)) return Colors.Transparent;
                 if (colorString.Contains(",")) colorString = colorString.Split(',')[0];
                 return (Color)ColorConverter.ConvertFromString(colorString.Trim());
             }
-            catch { return Colors.Transparent; }
+            catch (Exception ex)
+            {
+                // Логируем ошибку парсинга цвета
+                System.Diagnostics.Debug.WriteLine($"Failed to parse color '{colorString}': {ex.Message}");
+                return Colors.Transparent;
+            }
         }
     }
 }

@@ -138,7 +138,8 @@ namespace iikoServiceHelper
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"HotkeyManager Error: {ex}");
+                    // Логируем ошибку для диагностики
+                    System.Diagnostics.Debug.WriteLine($"HotkeyManager Error: {ex}");
                 }
             }
             return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);

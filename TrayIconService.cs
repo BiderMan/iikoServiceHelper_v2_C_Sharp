@@ -22,8 +22,10 @@ namespace iikoServiceHelper.Services
                 else
                     trayIcon = System.Drawing.SystemIcons.Application;
             }
-            catch
+            catch (Exception ex)
             {
+                // Логируем ошибку загрузки иконки
+                System.Diagnostics.Debug.WriteLine($"Failed to load tray icon: {ex.Message}");
                 trayIcon = System.Drawing.SystemIcons.Application;
             }
 

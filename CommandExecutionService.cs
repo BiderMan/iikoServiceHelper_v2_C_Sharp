@@ -105,7 +105,12 @@ namespace iikoServiceHelper.Services
                     {
                         Log($"Action canceled: {item.HotkeyName}");
                     }
-                    catch (Exception ex) { Log($"Action failed: {ex.Message}", LogLevel.Error); }
+                    catch (Exception ex)
+                    {
+                        Log($"Action failed: {ex.Message}", LogLevel.Error);
+                        Log($"Exception type: {ex.GetType().Name}", LogLevel.Error);
+                        Log($"Stack trace: {ex.StackTrace}", LogLevel.Error);
+                    }
                     sw.Stop();
                     Log($"Finished item: {item.HotkeyName}. Duration: {sw.ElapsedMilliseconds}ms");
                 }
@@ -325,24 +330,42 @@ namespace iikoServiceHelper.Services
 
         private string ConvertLayout(string text)
         {
-            var en = "qwertyuiop[]asdfghjkl;'zxcvbnm,.";
-            var ru = "йцукенгшщзхъфывапролджэячсмитьбю";
-            var enCap = "QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>";
-            var ruCap = "ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ";
-            var enSym = "`~@#$^&/?|\\";
-            var ruSym = "ёЁ\"№;:?.,/\\";
-
+            var layoutMap = new Dictionary<char, char>
+            {
+                // English lowercase to Russian
+                {'q', 'й'}, {'w', 'ц'}, {'e', 'у'}, {'r', 'к'}, {'t', 'е'}, {'y', 'н'}, {'u', 'г'}, {'i', 'ш'}, {'o', 'щ'}, {'p', 'з'},
+                {'[', 'х'}, {']', 'ъ'}, {'a', 'ф'}, {'s', 'ы'}, {'d', 'в'}, {'f', 'а'}, {'g', 'п'}, {'h', 'р'}, {'j', 'о'}, {'k', 'л'},
+                {';', 'д'}, {'\'', 'ж'}, {'z', 'я'}, {'x', 'ч'}, {'c', 'с'}, {'v', 'м'}, {'b', 'и'}, {'n', 'т'}, {'m', 'ь'}, {'.', 'ю'},
+                // Russian to English lowercase
+                {'й', 'q'}, {'ц', 'w'}, {'у', 'e'}, {'к', 'r'}, {'е', 't'}, {'н', 'y'}, {'г', 'u'}, {'ш', 'i'}, {'щ', 'o'}, {'з', 'p'},
+                {'х', '['}, {'ъ', ']'}, {'ф', 'a'}, {'ы', 's'}, {'в', 'd'}, {'а', 'f'}, {'п', 'g'}, {'р', 'h'}, {'о', 'j'}, {'л', 'k'},
+                {'д', 'l'}, {'ж', ';'}, {'э', '\''}, {'я', 'z'}, {'ч', 'x'}, {'с', 'c'}, {'м', 'v'}, {'и', 'b'}, {'т', 'n'}, {'ь', 'm'},
+                {',', ','}, {'ю', '.'},
+                // English uppercase to Russian
+                {'Q', 'Й'}, {'W', 'Ц'}, {'E', 'У'}, {'R', 'К'}, {'T', 'Е'}, {'Y', 'Н'}, {'U', 'Г'}, {'I', 'Ш'}, {'O', 'Щ'}, {'P', 'З'},
+                {'{', 'Х'}, {'}', 'Ъ'}, {'A', 'Ф'}, {'S', 'Ы'}, {'D', 'В'}, {'F', 'А'}, {'G', 'П'}, {'H', 'Р'}, {'J', 'О'}, {'K', 'Л'},
+                {'L', 'Д'}, {':', 'Ж'}, {'"', '"'}, {'Z', 'Я'}, {'X', 'Ч'}, {'C', 'С'}, {'V', 'М'}, {'B', 'И'}, {'N', 'Т'}, {'M', 'Ь'},
+                {'<', '<'}, {'>', '>'},
+                // Russian to English uppercase
+                {'Й', 'Q'}, {'Ц', 'W'}, {'У', 'E'}, {'К', 'R'}, {'Е', 'T'}, {'Н', 'Y'}, {'Г', 'U'}, {'Ш', 'I'}, {'Щ', 'O'}, {'З', 'P'},
+                {'Х', '{'}, {'Ъ', '}'}, {'Ф', 'A'}, {'Ы', 'S'}, {'В', 'D'}, {'А', 'F'}, {'П', 'G'}, {'Р', 'H'}, {'О', 'J'}, {'Л', 'K'},
+                {'Д', 'L'}, {'Ж', ':'}, {'Э', '"'}, {'Я', 'Z'}, {'Ч', 'X'}, {'С', 'C'}, {'М', 'V'}, {'И', 'B'}, {'Т', 'N'}, {'Ь', 'M'},
+                {'Б', '<'}, {'Ю', '>'},
+                // Symbols
+                {'`', 'ё'}, {'~', 'Ё'}, {'@', '"'}, {'#', '№'}, {'$', ';'}, {'^', ':'}, {'&', '?'}, {'/', '.'}, {'?', ','}, {'|', '/'}, {'\\', '\\'}
+            };
+            
             var sb = new StringBuilder(text.Length);
             foreach (char c in text)
             {
-                int idx;
-                if ((idx = en.IndexOf(c)) != -1) sb.Append(ru[idx]);
-                else if ((idx = ru.IndexOf(c)) != -1) sb.Append(en[idx]);
-                else if ((idx = enCap.IndexOf(c)) != -1) sb.Append(ruCap[idx]);
-                else if ((idx = ruCap.IndexOf(c)) != -1) sb.Append(enCap[idx]);
-                else if ((idx = enSym.IndexOf(c)) != -1) sb.Append(ruSym[idx]);
-                else if ((idx = ruSym.IndexOf(c)) != -1) sb.Append(enSym[idx]);
-                else sb.Append(c);
+                if (layoutMap.TryGetValue(c, out char converted))
+                {
+                    sb.Append(converted);
+                }
+                else
+                {
+                    sb.Append(c);
+                }
             }
             return sb.ToString();
         }

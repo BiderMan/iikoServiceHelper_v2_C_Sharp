@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -40,7 +41,11 @@ namespace iikoServiceHelper
                 var crashLogPath = Path.Combine(appDataPath, "crash_log.txt");
                 File.AppendAllText(crashLogPath, $"[{DateTime.Now:O}]\n{e.Exception}\n\n");
             }
-            catch { /* Ignore if logging fails */ }
+            catch (Exception logEx)
+            {
+                // Log the logging failure itself for diagnostics
+                System.Diagnostics.Debug.WriteLine($"Failed to write crash log: {logEx.Message}");
+            }
 
             MessageBox.Show("Произошла критическая ошибка, и приложение будет закрыто.\nПодробности записаны в файл crash_log.txt в папке с данными приложения.", "Критическая ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
 

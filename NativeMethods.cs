@@ -92,6 +92,12 @@ namespace iikoServiceHelper
 
         public static void SendText(string text)
         {
+            // Проверка на длину строки для предотвращения чрезмерного потребления ресурсов
+            if (string.IsNullOrEmpty(text) || text.Length > 10000)
+            {
+                throw new ArgumentException("Text is null or exceeds maximum length of 10000 characters", nameof(text));
+            }
+            
             foreach (char c in text)
             {
                 INPUT[] inputs = new INPUT[2];

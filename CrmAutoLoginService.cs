@@ -266,6 +266,8 @@ namespace iikoServiceHelper.Services
                     {
                         LogMessage?.Invoke($"[Eval] Ошибка выполнения JavaScript: {ex.Message}");
                         Debug.WriteLine($"[Eval] Exception: {ex}");
+                        // Добавляем более подробное логирование ошибки
+                        LogMessage?.Invoke($"[Eval] Подробности ошибки: {ex.GetType().Name} в выражении {js}");
                     }
                     return "";
                 }

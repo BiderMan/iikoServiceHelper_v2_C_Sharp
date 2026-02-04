@@ -46,10 +46,18 @@ namespace iikoServiceHelper.Services
                         }
                         else if (content.Contains("{DateTime.Now"))
                         {
-                            // Handle dynamic date formatting
-                            string format = content.Substring(content.IndexOf('{') + 1, content.IndexOf('}') - content.IndexOf('{') - 1);
-                            string baseCommand = content.Substring(0, content.IndexOf('{')).Trim();
-                            Reg(cmd.Trigger, cmd.Description, () => commandService.Enqueue("Bot", $"{baseCommand} {DateTime.Now.ToString(format.Replace("DateTime.Now:", ""))}", cmd.Trigger), content);
+                            try
+                            {
+                                // Handle dynamic date formatting
+                                string format = content.Substring(content.IndexOf('{') + 1, content.IndexOf('}') - content.IndexOf('{') - 1);
+                                string baseCommand = content.Substring(0, content.IndexOf('{')).Trim();
+                                Reg(cmd.Trigger, cmd.Description, () => commandService.Enqueue("Bot", $"{baseCommand} {DateTime.Now.ToString(format.Replace("DateTime.Now:", ""))}", cmd.Trigger), content);
+                            }
+                            catch (Exception ex)
+                            {
+                                // Логируем ошибку форматирования даты
+                                System.Diagnostics.Debug.WriteLine($"Date format error in command '{cmd.Trigger}': {ex.Message}");
+                            }
                         }
                         else
                         {

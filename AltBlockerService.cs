@@ -83,9 +83,18 @@ namespace iikoServiceHelper.Services
 
         private IntPtr SetHook(LowLevelKeyboardProc proc)
         {
-            using Process curProcess = Process.GetCurrentProcess();
-            using ProcessModule? curModule = curProcess.MainModule;
-            return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule?.ModuleName), 0);
+            try
+            {
+                using Process curProcess = Process.GetCurrentProcess();
+                using ProcessModule? curModule = curProcess.MainModule;
+                return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule?.ModuleName), 0);
+            }
+            catch (Exception ex)
+            {
+                // Логируем ошибку установки хука
+                System.Diagnostics.Debug.WriteLine($"Failed to set keyboard hook: {ex.Message}");
+                throw;
+            }
         }
 
         public void Dispose() => Disable();

@@ -134,6 +134,12 @@ namespace iikoServiceHelper.Services
                     if (canReportProgress) ProgressChanged?.Invoke((double)totalRead / totalBytes * 100);
                 }
 
+                // Проверка целостности файла (простая проверка - файл не пустой)
+                if (new FileInfo(savePath).Length == 0)
+                {
+                    throw new IOException("Downloaded file is empty");
+                }
+
                 DownloadCompleted?.Invoke(newFileName, savePath);
             }
             catch (Exception ex)

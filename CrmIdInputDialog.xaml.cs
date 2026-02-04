@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -48,7 +49,11 @@ namespace iikoServiceHelper
                     }
                 }
             }
-            catch { /* Игнорируем ошибки доступа к буферу */ }
+            catch (Exception ex)
+            {
+                // Логируем ошибку доступа к буферу обмена
+                System.Diagnostics.Debug.WriteLine($"Clipboard access error in CrmIdInputDialog: {ex.Message}");
+            }
         }
 
         private void AppendId(string id)

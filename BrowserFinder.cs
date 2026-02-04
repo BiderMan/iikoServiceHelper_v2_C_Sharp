@@ -35,12 +35,21 @@ namespace iikoServiceHelper.Services
 
             foreach (var item in commonPaths)
             {
-                if (File.Exists(item.Path))
+                try
                 {
-                    if (!foundBrowsers.Any(b => b.Path.Equals(item.Path, StringComparison.OrdinalIgnoreCase)))
+                    // Проверяем, что путь находится внутри разрешенных каталогов для предотвращения path traversal атак
+                    if (IsPathSafe(item.Path) && File.Exists(item.Path))
                     {
-                        foundBrowsers.Add(new BrowserItem { Name = item.Name, Path = item.Path });
+                        if (!foundBrowsers.Any(b => b.Path.Equals(item.Path, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            foundBrowsers.Add(new BrowserItem { Name = item.Name, Path = item.Path });
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    // Логируем ошибку доступа к файлу
+                    Debug.WriteLine($"Error accessing path {item.Path}: {ex.Message}");
                 }
             }
 
@@ -80,6 +89,30 @@ namespace iikoServiceHelper.Services
                 }
             }
             return foundBrowsers;
+        }
+        
+        // Добавляем вспомогательный метод для проверки безопасности пути
+        private static bool IsPathSafe(string fullPath)
+        {
+            if (string.IsNullOrEmpty(fullPath)) return false;
+            
+            try
+            {
+                var rootPath = Path.GetPathRoot(fullPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var validRoots = new[]
+                {
+                    Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)),
+                    Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)),
+                    Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86))
+                };
+                
+                return validRoots.Any(validRoot =>
+                    string.Equals(rootPath, validRoot, StringComparison.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

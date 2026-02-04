@@ -240,81 +240,107 @@ namespace iikoServiceHelper
         }
         private void LoadCustomCommandsForEditor(List<CustomCommand> commandsToLoad)
         {
-            var defaultTriggers = DefaultCommandsProvider.GetDefaultCommands()
-                .Select(c => c.Trigger)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            EditableCustomCommands.Clear();
-            foreach(var cmd in commandsToLoad.Where(c => c.Type != "System"))
+            try
             {
-                cmd.IsReadOnly = defaultTriggers.Contains(cmd.Trigger);
-                EditableCustomCommands.Add(cmd);
+                var defaultTriggers = DefaultCommandsProvider.GetDefaultCommands()
+                    .Select(c => c.Trigger)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                EditableCustomCommands.Clear();
+                foreach(var cmd in commandsToLoad.Where(c => c.Type != "System"))
+                {
+                    cmd.IsReadOnly = defaultTriggers.Contains(cmd.Trigger);
+                    EditableCustomCommands.Add(cmd);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Логируем ошибку загрузки пользовательских команд
+                LogDetailed($"Failed to load custom commands for editor: {ex.Message}");
             }
         }
         
         private void InitializeHotkeys(IEnumerable<CustomCommand> commandsToRegister)
         {
-            _hotkeyActions.Clear();
-            _displayItems.Clear();
-
-            // Это действие зависит от UI (диалоговое окно), поэтому оно определяется здесь,
-            // а не в провайдере горячих клавиш.
-            Action openCrmDialog = () => 
+            try
             {
-                string? result = null;
-                Application.Current.Dispatcher.Invoke(() => 
-                {
-                    try
-                    {
-                        // CrmIdInputDialog - это кастомное окно для ввода ID.
-                        var dlg = new CrmIdInputDialog();
-                        dlg.Owner = Application.Current.MainWindow;
-                        
-                        dlg.Resources.MergedDictionaries.Add(this.Resources);
-                        dlg.Background = (System.Windows.Media.Brush)this.FindResource("BrushBackground");
-                        dlg.Foreground = (System.Windows.Media.Brush)this.FindResource("BrushForeground");
+                _hotkeyActions.Clear();
+                _displayItems.Clear();
 
-                        if (dlg.ShowDialog() == true) result = dlg.ResultIds;
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"Не удалось открыть окно: {ex.Message}\nПопробуйте пересобрать проект (Rebuild).");
-                    }
-                });
-
-                if (!string.IsNullOrWhiteSpace(result))
+                // Это действие зависит от UI (диалоговое окно), поэтому оно определяется здесь,
+                // а не в провайдере горячих клавиш.
+                Action openCrmDialog = () =>
                 {
-                    Thread.Sleep(1000); // Пауза для возврата фокуса в окно чата
-                    _commandExecutionService.Enqueue("Bot", $"cmd duplicate {result}", "Alt+Shift+D8");
+                    string? result = null;
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        try
+                        {
+                            // CrmIdInputDialog - это кастомное окно для ввода ID.
+                            var dlg = new CrmIdInputDialog();
+                            dlg.Owner = Application.Current.MainWindow;
+                            
+                            dlg.Resources.MergedDictionaries.Add(this.Resources);
+                            dlg.Background = (System.Windows.Media.Brush)this.FindResource("BrushBackground");
+                            dlg.Foreground = (System.Windows.Media.Brush)this.FindResource("BrushForeground");
+
+                            if (dlg.ShowDialog() == true) result = dlg.ResultIds;
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show($"Не удалось открыть окно: {ex.Message}\nПопробуйте пересобрать проект (Rebuild).");
+                        }
+                    });
+
+                    if (!string.IsNullOrWhiteSpace(result))
+                    {
+                        Thread.Sleep(1000); // Пауза для возврата фокуса в окно чата
+                        _commandExecutionService.Enqueue("Bot", $"cmd duplicate {result}", "Alt+Shift+D8");
+                    }
+                };
+
+                var (actions, displayItems) = HotkeyProvider.RegisterAll(_commandExecutionService, openCrmDialog, commandsToRegister);
+
+                _hotkeyActions = actions;
+                foreach (var item in displayItems)
+                {
+                    _displayItems.Add(item);
                 }
-            };
-
-            var (actions, displayItems) = HotkeyProvider.RegisterAll(_commandExecutionService, openCrmDialog, commandsToRegister);
-
-            _hotkeyActions = actions;
-            foreach (var item in displayItems)
+            }
+            catch (Exception ex)
             {
-                _displayItems.Add(item);
+                // Логируем ошибку инициализации горячих клавиш
+                LogDetailed($"Failed to initialize hotkeys: {ex.Message}");
+                ShowCustomMessage("Ошибка", $"Не удалось инициализировать горячие клавиши: {ex.Message}", true);
             }
         }
 
         private void ToggleHooks()
         {
-            _hooksDisabled = !_hooksDisabled;
-            if (_hooksDisabled)
+            try
             {
-                _hotkeyManager?.Dispose();
-                _hotkeyManager = null;
-                _altBlockerService?.Disable();
+                _hooksDisabled = !_hooksDisabled;
+                if (_hooksDisabled)
+                {
+                    _hotkeyManager?.Dispose();
+                    _hotkeyManager = null;
+                    _altBlockerService?.Disable();
+                }
+                else
+                {
+                    _hotkeyManager = new HotkeyManager(); // Здесь лучше использовать фабрику или пересоздавать через DI, но для простоты оставим так
+                    _hotkeyManager.HotkeyHandler = OnGlobalHotkey;
+                    _altBlockerService = new AltBlockerService(_hotkeyManager, LogDetailed);
+                    UpdateAltHookState(chkAltBlocker.IsChecked == true);
+                }
+                _trayIconService.UpdateState(_hooksDisabled);
             }
-            else
+            catch (Exception ex)
             {
-                _hotkeyManager = new HotkeyManager(); // Здесь лучше использовать фабрику или пересоздавать через DI, но для простоты оставим так
-                _hotkeyManager.HotkeyHandler = OnGlobalHotkey;
-                _altBlockerService = new AltBlockerService(_hotkeyManager, LogDetailed);
-                UpdateAltHookState(chkAltBlocker.IsChecked == true);
+                // Логируем ошибку переключения перехвата
+                LogDetailed($"Failed to toggle hooks: {ex.Message}");
+                ShowCustomMessage("Ошибка", $"Не удалось переключить перехват клавиш: {ex.Message}", true);
             }
-            _trayIconService.UpdateState(_hooksDisabled);
         }
 
         private void ShowWindow()
@@ -402,14 +428,17 @@ namespace iikoServiceHelper
                 if (element == null) return false;
 
                 var type = element.Current.ControlType;
-                return type == ControlType.Edit || 
-                       type == ControlType.Document || 
+                return type == ControlType.Edit ||
+                       type == ControlType.Document ||
                        type == ControlType.Custom ||
                        type == ControlType.Text;
             }
-            catch 
+            catch
             {
-                return true; // В случае ошибки не блокируем выполнение
+                // Возвращаем true в случае ошибки, чтобы не блокировать выполнение
+                // Но также добавляем логирование для диагностики
+                LogDetailed("Failed to determine focused element, assuming input is focused");
+                return true;
             }
         }
 
@@ -452,12 +481,43 @@ namespace iikoServiceHelper
         // Notes
         private void LoadNotes()
         {
-            if (File.Exists(NotesFile)) txtNotes.Text = File.ReadAllText(NotesFile);
+            try
+            {
+                if (File.Exists(NotesFile))
+                {
+                    // Проверяем размер файла перед загрузкой
+                    var fileInfo = new FileInfo(NotesFile);
+                    if (fileInfo.Length > 1000000) // 1MB limit
+                    {
+                        throw new InvalidOperationException("Notes file exceeds maximum allowed size");
+                    }
+                    txtNotes.Text = File.ReadAllText(NotesFile);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Логируем ошибку загрузки заметок
+                LogDetailed($"Failed to load notes: {ex.Message}");
+            }
         }
 
         private void SaveNotes()
         {
-            try { File.WriteAllText(NotesFile, txtNotes.Text); } catch { }
+            try
+            {
+                // Проверяем размер текста перед сохранением
+                if (txtNotes.Text.Length > 1000000) // 1MB limit
+                {
+                    throw new InvalidOperationException("Notes content exceeds maximum allowed size");
+                }
+                
+                File.WriteAllText(NotesFile, txtNotes.Text);
+            }
+            catch (Exception ex)
+            {
+                // Логируем ошибку сохранения заметок
+                LogDetailed($"Failed to save notes: {ex.Message}");
+            }
         }
 
         private void txtNotes_LostFocus(object sender, RoutedEventArgs e)
@@ -488,7 +548,21 @@ namespace iikoServiceHelper
                 {
                     using var client = new HttpClient();
                     var bytes = await client.GetByteArrayAsync("https://clearbat.iiko.online/downloads/OrderCheck.exe");
+                    
+                    // Проверка, что файл имеет размер больше 0
+                    if (bytes.Length == 0)
+                    {
+                        throw new InvalidOperationException("Загруженный файл пустой");
+                    }
+                    
                     await File.WriteAllBytesAsync(exePath, bytes);
+                    
+                    // Проверка наличия файла перед запуском
+                    if (!File.Exists(exePath))
+                    {
+                        throw new FileNotFoundException("Файл не был сохранен после загрузки");
+                    }
+                    
                     Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
                 }
                 catch (Exception ex) { MessageBox.Show($"Ошибка скачивания: {ex.Message}"); }
@@ -570,7 +644,11 @@ namespace iikoServiceHelper
                                 break;
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            // Логируем ошибку сохранения настроек темы
+                            LogDetailed($"Failed to save theme settings: {ex.Message}");
+                        }
                     }
 
                     if (hWnd != IntPtr.Zero) SetWindowPos(hWnd, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004);
@@ -663,7 +741,11 @@ namespace iikoServiceHelper
                     SaveThemeSettings();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Логируем ошибку загрузки настроек темы
+                LogDetailed($"Failed to load theme settings: {ex.Message}");
+            }
         }
 
         private void LoadSettings()
@@ -723,7 +805,11 @@ namespace iikoServiceHelper
                     if (chkAltBlocker != null) chkAltBlocker.IsChecked = true;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Логируем ошибку загрузки настроек
+                LogDetailed($"Failed to load settings: {ex.Message}");
+            }
         }
 
         private bool IsOnScreen(double left, double top, double width, double height)
@@ -739,8 +825,8 @@ namespace iikoServiceHelper
                 // Handle Minimized state by saving as Normal
                 var stateToSave = this.WindowState == WindowState.Minimized ? WindowState.Normal : this.WindowState;
 
-                var settings = new AppSettings 
-                { 
+                var settings = new AppSettings
+                {
                     NotesFontSize = txtNotes.FontSize,
                     CrmLogin = txtCrmLogin.Text,
                     CrmPassword = txtCrmPassword.Password,
@@ -759,7 +845,11 @@ namespace iikoServiceHelper
                 var json = JsonSerializer.Serialize(settings);
                 File.WriteAllText(SettingsFile, json);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Логируем ошибку сохранения настроек
+                LogDetailed($"Failed to save settings: {ex.Message}");
+            }
         }
 
         private void TxtCrm_LostFocus(object sender, RoutedEventArgs e)
@@ -1368,8 +1458,18 @@ namespace iikoServiceHelper
             var systemCommands = allDefaultCommands.Where(c => c.Type == "System");
             allCommandsToRegister.AddRange(systemCommands);
 
-            _customCommandService.SaveCommands(editableCommands);
-            InitializeHotkeys(allCommandsToRegister);
+            try
+            {
+                _customCommandService.SaveCommands(editableCommands);
+                InitializeHotkeys(allCommandsToRegister);
+            }
+            catch (Exception ex)
+            {
+                // Логируем ошибку сохранения пользовательских команд
+                LogDetailed($"Failed to save custom commands: {ex.Message}");
+                ShowCustomMessage("Ошибка", $"Не удалось сохранить команды: {ex.Message}", true);
+                return;
+            }
 
             ShowTempNotification("Команды сохранены и применены!");
         }
@@ -1401,24 +1501,33 @@ namespace iikoServiceHelper
 
         private bool IsHotkeyDuplicate(string newHotkey, CustomCommand currentCommand)
         {
-            // Проверка на дубликаты среди других пользовательских команд
-            if (EditableCustomCommands.Any(c => c != currentCommand && c.Trigger.Equals(newHotkey, StringComparison.OrdinalIgnoreCase)))
+            try
             {
-                return true;
+                // Проверка на дубликаты среди других пользовательских команд
+                if (EditableCustomCommands.Any(c => c != currentCommand && c.Trigger.Equals(newHotkey, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+
+                // Проверка на конфликт с системными командами, которые не отображаются в редакторе
+                var systemTriggers = DefaultCommandsProvider.GetDefaultCommands()
+                    .Where(c => c.Type == "System")
+                    .Select(c => c.Trigger)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                if (systemTriggers.Contains(newHotkey))
+                {
+                    return true;
+                }
+
+                return false;
             }
-
-            // Проверка на конфликт с системными командами, которые не отображаются в редакторе
-            var systemTriggers = DefaultCommandsProvider.GetDefaultCommands()
-                .Where(c => c.Type == "System")
-                .Select(c => c.Trigger)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            if (systemTriggers.Contains(newHotkey))
+            catch (Exception ex)
             {
-                return true;
+                // Логируем ошибку проверки дубликата горячей клавиши
+                LogDetailed($"Failed to check hotkey duplicate: {ex.Message}");
+                return false; // Возвращаем false, чтобы не блокировать функциональность
             }
-
-            return false;
         }
 
         private void CommandsTab_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

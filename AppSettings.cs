@@ -46,7 +46,11 @@ namespace iikoServiceHelper.Models
                 var data = Encoding.UTF8.GetBytes(password);
                 var encrypted = ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
                 return Convert.ToBase64String(encrypted);
-            } catch { return string.Empty; }
+            } catch (Exception ex) {
+                // Логируем ошибку шифрования
+                System.Diagnostics.Debug.WriteLine($"Encryption failed: {ex.Message}");
+                return string.Empty;
+            }
         }
 
         private static string DecryptPassword(string encryptedPassword)
@@ -56,7 +60,11 @@ namespace iikoServiceHelper.Models
                 var data = Convert.FromBase64String(encryptedPassword);
                 var decrypted = ProtectedData.Unprotect(data, null, DataProtectionScope.CurrentUser);
                 return Encoding.UTF8.GetString(decrypted);
-            } catch { return string.Empty; }
+            } catch (Exception ex) {
+                // Логируем ошибку дешифрования
+                System.Diagnostics.Debug.WriteLine($"Decryption failed: {ex.Message}");
+                return string.Empty;
+            }
         }
     }
 }
