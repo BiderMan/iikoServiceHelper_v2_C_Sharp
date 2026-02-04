@@ -4,37 +4,54 @@ using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using iikoServiceHelper.Models;
 using iikoServiceHelper.Utils;
 
 namespace iikoServiceHelper.Services
 {
-    public class CommandExecutionService
+    /// <summary>
+    /// Сервис для последовательного выполнения команд и макросов.
+    /// </summary>
+    public class CommandExecutionService : ICommandExecutionService
     {
-        private readonly ICommandHost _host;
+        private ICommandHost? _host;
         private readonly HotkeyManager _hotkeyManager;
+        private readonly ILogger<CommandExecutionService> _logger;
+        private readonly AppSettings _settings;
 
         private readonly Queue<(string Command, object? Parameter, string HotkeyName)> _commandQueue = new();
         private readonly object _queueLock = new();
         private volatile bool _isQueueRunning = false;
         private string _currentActionName = "";
         private volatile bool _cancelCurrentAction = false;
+        private CancellationTokenSource? _currentCts;
 
-        public CommandExecutionService(ICommandHost host, HotkeyManager hotkeyManager)
+        public CommandExecutionService(HotkeyManager hotkeyManager, ILogger<CommandExecutionService> logger, AppSettings settings)
         {
-            _host = host;
             _hotkeyManager = hotkeyManager;
+            _logger = logger;
+            _settings = settings;
         }
 
+        public void SetHost(ICommandHost host)
+        {
+            _host = host;
+        }
+
+        /// <summary>
+        /// Добавляет команду в очередь выполнения.
+        /// </summary>
         public void Enqueue(string command, object? parameter, string hotkeyName)
         {
             lock (_queueLock)
             {
                 _commandQueue.Enqueue((command, parameter, hotkeyName));
-                _host.LogDetailed($"Enqueued: {hotkeyName}. Queue size: {_commandQueue.Count}");
+                Log($"Enqueued: {hotkeyName}. Queue size: {_commandQueue.Count}");
 
                 if (_isQueueRunning)
                 {
-                    _host.RunOnUIThread(UpdateOverlayMessage);
+                    _host?.RunOnUIThread(UpdateOverlayMessage);
                 }
 
                 if (!_isQueueRunning)
@@ -49,7 +66,7 @@ namespace iikoServiceHelper.Services
         {
             try
             {
-                _host.LogDetailed("Queue processor started.");
+                Log("Queue processor started.");
                 while (true)
                 {
                     (string Command, object? Parameter, string HotkeyName) item;
@@ -58,7 +75,7 @@ namespace iikoServiceHelper.Services
                     {
                         if (_commandQueue.Count == 0)
                         {
-                            _host.LogDetailed("Queue empty. Processor stopping.");
+                            Log("Queue empty. Processor stopping.");
                             _isQueueRunning = false;
                             _currentActionName = ""; // Очищаем состояние, когда очередь пуста
                             break;
@@ -67,44 +84,53 @@ namespace iikoServiceHelper.Services
                         queueCount = _commandQueue.Count;
                         _currentActionName = StringUtils.FormatKeyCombo(item.HotkeyName);
                     }
-                    _host.LogDetailed($"Processing item: {item.HotkeyName}. Remaining in queue: {queueCount}");
+                    Log($"Processing item: {item.HotkeyName}. Remaining in queue: {queueCount}");
 
-                    _host.RunOnUIThread(() =>
+                    _host?.RunOnUIThread(() =>
                     {
-                        _host.IncrementCommandCount();
+                        _host?.IncrementCommandCount();
                         UpdateOverlayMessage();
                     });
 
                     _cancelCurrentAction = false;
+                    _currentCts?.Dispose();
+                    _currentCts = new CancellationTokenSource();
+
                     var sw = Stopwatch.StartNew();
                     try
                     {
-                        await ExecuteCommand(item.Command, item.Parameter);
+                        await ExecuteCommand(item.Command, item.Parameter, _currentCts.Token);
                     }
                     catch (OperationCanceledException)
                     {
-                        _host.LogDetailed($"Action canceled: {item.HotkeyName}");
+                        Log($"Action canceled: {item.HotkeyName}");
                     }
-                    catch (Exception ex) { _host.LogDetailed($"Action failed: {ex.Message}"); }
+                    catch (Exception ex) { Log($"Action failed: {ex.Message}", LogLevel.Error); }
                     sw.Stop();
-                    _host.LogDetailed($"Finished item: {item.HotkeyName}. Duration: {sw.ElapsedMilliseconds}ms");
+                    Log($"Finished item: {item.HotkeyName}. Duration: {sw.ElapsedMilliseconds}ms");
                 }
 
-                _host.RunOnUIThread(async () =>
+                _host?.RunOnUIThread(async () =>
                 {
                     await Task.Delay(250); // Короткая задержка перед скрытием
-                    if (!_isQueueRunning) _host.HideOverlay();
+                    if (!_isQueueRunning) _host?.HideOverlay();
                 });
             }
             catch (Exception ex)
             {
-                _host.LogDetailed($"CRITICAL QUEUE ERROR: {ex.Message}");
+                Log($"CRITICAL QUEUE ERROR: {ex.Message}", LogLevel.Critical);
                 lock (_queueLock)
                 {
                     _isQueueRunning = false;
                     _commandQueue.Clear();
                 }
             }
+        }
+
+        private void Log(string message, LogLevel level = LogLevel.Information)
+        {
+            _logger.Log(level, message);
+            _host?.LogDetailed(message);
         }
 
         private void UpdateOverlayMessage()
@@ -118,12 +144,16 @@ namespace iikoServiceHelper.Services
                 count = _commandQueue.Count;
             }
             if (count > 0) msg += $" (Очередь: {count})";
-            _host.UpdateOverlay(msg);
+            _host?.UpdateOverlay(msg);
         }
 
+        /// <summary>
+        /// Принудительно очищает очередь команд и отменяет текущую операцию.
+        /// </summary>
         public void ClearQueue()
         {
             _cancelCurrentAction = true;
+            _currentCts?.Cancel();
             int clearedCount;
             bool wasRunning;
             lock (_queueLock)
@@ -133,10 +163,10 @@ namespace iikoServiceHelper.Services
                 wasRunning = _isQueueRunning;
             }
 
-            _host.LogDetailed($"Очередь команд принудительно очищена (удалено {clearedCount}, прервано текущее).");
-            _host.RunOnUIThread(async () =>
+            Log($"Очередь команд принудительно очищена (удалено {clearedCount}, прервано текущее).", LogLevel.Warning);
+            _host?.RunOnUIThread(async () =>
             {
-                _host.UpdateOverlay("Очередь очищена");
+                _host?.UpdateOverlay("Очередь очищена");
                 // Если обработчик очереди не был запущен, он не сможет скрыть оверлей.
                 // Берем эту задачу на себя.
                 if (!wasRunning)
@@ -144,52 +174,53 @@ namespace iikoServiceHelper.Services
                     await Task.Delay(1000); // Показываем сообщение 1 секунду
                     // Перепроверяем, не запустилось ли что-то новое за это время
                     if (!_isQueueRunning) {
-                        _host.HideOverlay();
+                        _host?.HideOverlay();
                     }
                 }
             });
         }
 
-        private void CheckCancellation()
+        private void CheckCancellation(CancellationToken token)
         {
             if (_cancelCurrentAction) throw new OperationCanceledException();
+            token.ThrowIfCancellationRequested();
         }
 
-        private async Task ExecuteCommand(string command, object? parameter)
+        private async Task ExecuteCommand(string command, object? parameter, CancellationToken token)
         {
-            WaitForInputFocus();
-            _host.LogDetailed($"[START] Execute {command}. Param: {parameter}");
+            await WaitForInputFocus(token);
+            Log($"[START] Execute {command}. Param: {parameter}");
             var sw = Stopwatch.StartNew();
             _hotkeyManager.IsInputBlocked = true;
             try
             {
-                CheckCancellation();
+                CheckCancellation(token);
                 SafeReleaseModifiers();
                 NativeMethods.ReleaseAlphaKeys();
-                _host.LogDetailed("Modifiers released. Sleep 100ms.");
-                Thread.Sleep(100);
-                CheckCancellation();
+                Log($"Modifiers released. Sleep {_settings.Delays.ActionPause}ms.");
+                await Task.Delay(_settings.Delays.ActionPause, token);
+                CheckCancellation(token);
 
                 switch (command)
                 {
                     case "Bot":
-                        TypeText("@chat_bot");
-                        Thread.Sleep(100); CheckCancellation();
+                        await TypeText("@chat_bot", token);
+                        await Task.Delay(_settings.Delays.ActionPause, token); CheckCancellation(token);
                         NativeMethods.SendKey(NativeMethods.VK_RETURN);
                         if (parameter is string args && !string.IsNullOrEmpty(args))
                         {
-                            Thread.Sleep(200); CheckCancellation();
+                            await Task.Delay(200, token); CheckCancellation(token);
                             NativeMethods.SendKey(NativeMethods.VK_SPACE);
-                            Thread.Sleep(50); CheckCancellation();
-                            TypeText(args);
+                            await Task.Delay(_settings.Delays.KeyPress, token); CheckCancellation(token);
+                            await TypeText(args, token);
                         }
                         break;
 
                     case "BotCall":
-                        TypeText("@chat_bot");
-                        Thread.Sleep(100); CheckCancellation();
+                        await TypeText("@chat_bot", token);
+                        await Task.Delay(_settings.Delays.ActionPause, token); CheckCancellation(token);
                         NativeMethods.SendKey(NativeMethods.VK_RETURN);
-                        Thread.Sleep(100); CheckCancellation();
+                        await Task.Delay(_settings.Delays.ActionPause, token); CheckCancellation(token);
                         NativeMethods.ReleaseModifiers();
                         NativeMethods.SendKey(NativeMethods.VK_RETURN);
                         break;
@@ -197,14 +228,14 @@ namespace iikoServiceHelper.Services
                     case "Reply":
                         if (parameter is string text)
                         {
-                            TypeText(text);
-                            Thread.Sleep(150); CheckCancellation();
+                            await TypeText(text, token);
+                            await Task.Delay(150, token); CheckCancellation(token);
                             NativeMethods.SendKey(NativeMethods.VK_RETURN);
                         }
                         break;
 
                     case "FixLayout":
-                        await FixLayout();
+                        await FixLayout(token);
                         break;
                 }
             }
@@ -214,45 +245,45 @@ namespace iikoServiceHelper.Services
                 if (_hotkeyManager.IsAltPhysicallyDown)
                 {
                     NativeMethods.PressAltDown();
-                    _host.LogDetailed("Restored Alt key.");
+                    Log("Restored Alt key.");
                 }
                 sw.Stop();
-                _host.LogDetailed($"[END] Execute {command}. Total duration: {sw.ElapsedMilliseconds}ms");
+                Log($"[END] Execute {command}. Total duration: {sw.ElapsedMilliseconds}ms");
             }
         }
 
-        private void WaitForInputFocus()
+        private async Task WaitForInputFocus(CancellationToken token)
         {
-            if (_host.IsInputFocused()) return;
+            if (_host != null && _host.IsInputFocused()) return;
 
-            _host.LogDetailed("Waiting for input focus...");
-            while (!_host.IsInputFocused())
+            Log("Waiting for input focus...");
+            while (_host != null && !_host.IsInputFocused())
             {
-                CheckCancellation();
+                CheckCancellation(token);
                 _host.RunOnUIThread(() => _host.UpdateOverlay("Ожидание поля ввода..."));
-                Thread.Sleep(500);
+                await Task.Delay(_settings.Delays.FocusWait, token);
             }
-            _host.LogDetailed("Input focus detected.");
-            _host.RunOnUIThread(UpdateOverlayMessage);
+            Log("Input focus detected.");
+            _host?.RunOnUIThread(UpdateOverlayMessage);
         }
 
-        private void TypeText(string text)
+        private async Task TypeText(string text, CancellationToken token)
         {
             var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             for (int i = 0; i < lines.Length; i++)
             {
-                CheckCancellation();
+                CheckCancellation(token);
                 if (!string.IsNullOrEmpty(lines[i]))
                 {
                     NativeMethods.SendText(lines[i]);
-                    Thread.Sleep(50);
+                    await Task.Delay(_settings.Delays.KeyPress, token);
                 }
                 if (i < lines.Length - 1)
                 {
-                    CheckCancellation();
-                    Thread.Sleep(50);
+                    CheckCancellation(token);
+                    await Task.Delay(_settings.Delays.KeyPress, token);
                     NativeMethods.SendKey(NativeMethods.VK_RETURN);
-                    Thread.Sleep(50);
+                    await Task.Delay(_settings.Delays.KeyPress, token);
                 }
             }
         }
@@ -267,27 +298,27 @@ namespace iikoServiceHelper.Services
             NativeMethods.ReleaseModifiers();
         }
 
-        private async Task FixLayout()
+        private async Task FixLayout(CancellationToken token)
         {
-            _host.RunOnUIThread(() => _host.ClipboardClear());
+            _host?.RunOnUIThread(() => _host.ClipboardClear());
 
-            _host.SendKeysWait("^c");
-            Thread.Sleep(50);
+            _host?.SendKeysWait("^c");
+            await Task.Delay(_settings.Delays.KeyPress, token);
 
             string? text = null;
-            _host.RunOnUIThread(() => { if (_host.ClipboardContainsText()) text = _host.ClipboardGetText(); });
+            _host?.RunOnUIThread(() => { if (_host.ClipboardContainsText()) text = _host.ClipboardGetText(); });
 
             if (!string.IsNullOrEmpty(text))
             {
                 string fixedText = ConvertLayout(text);
                 if (text != fixedText)
                 {
-                    _host.RunOnUIThread(() => _host.ClipboardSetText(fixedText));
+                    _host?.RunOnUIThread(() => _host.ClipboardSetText(fixedText));
 
-                    _host.SendKeysWait("^v");
-                    Thread.Sleep(100);
+                    _host?.SendKeysWait("^v");
+                    await Task.Delay(_settings.Delays.ActionPause, token);
 
-                    await _host.CleanClipboardHistoryAsync(2);
+                    if (_host != null) await _host.CleanClipboardHistoryAsync(2);
                 }
             }
         }

@@ -40,6 +40,8 @@ namespace iikoServiceHelper
         {
             if (nCode >= 0)
             {
+                try
+                {
                 int vkCode = Marshal.ReadInt32(lParam);
                 int flags = Marshal.ReadInt32(lParam, 8);
                 bool isInjected = (flags & 0x10) != 0;
@@ -87,7 +89,41 @@ namespace iikoServiceHelper
                     if (alt) parts.Add("Alt");
                     if (shift) parts.Add("Shift");
 
-                    parts.Add(key.ToString());
+                    string keyName;
+                    switch (key)
+                    {
+                        case >= Keys.D0 and <= Keys.D9:
+                            keyName = (key - Keys.D0).ToString();
+                            break;
+                        case >= Keys.NumPad0 and <= Keys.NumPad9:
+                            keyName = "NumPad" + (key - Keys.NumPad0).ToString();
+                            break;
+                        case Keys.Oem1: // OemSemicolon
+                            keyName = ";";
+                            break;
+                        case Keys.OemQuestion: // Oem2, /?
+                            keyName = "/";
+                            break;
+                        case Keys.Oemtilde: // Oem3, `~
+                            keyName = "`";
+                            break;
+                        case Keys.OemOpenBrackets: // Oem4, [{
+                            keyName = "[";
+                            break;
+                        case Keys.OemPipe: // Oem5, \|
+                            keyName = "\\";
+                            break;
+                        case Keys.OemCloseBrackets: // Oem6, ]}
+                            keyName = "]";
+                            break;
+                        case Keys.OemQuotes: // Oem7, '"
+                            keyName = "'";
+                            break;
+                        default:
+                            keyName = key.ToString();
+                            break;
+                    }
+                    parts.Add(keyName);
 
                     string combo = string.Join("+", parts);
                     
@@ -99,6 +135,11 @@ namespace iikoServiceHelper
 
                 if (IsInputBlocked)
                     return (IntPtr)1; // Block input if not a hotkey
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"HotkeyManager Error: {ex}");
+                }
             }
             return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
         }

@@ -33,11 +33,13 @@ namespace iikoServiceHelper
         private readonly string SettingsFile;
         private readonly string ThemeSettingsFile;
         private readonly string DetailedLogFile;
+        private readonly AppSettings _appSettings;
         private readonly object _logLock = new();
 
         private HotkeyManager? _hotkeyManager;
         private OverlayWindow _overlay;
         private Dictionary<string, Action> _hotkeyActions = new(StringComparer.OrdinalIgnoreCase);
+        public ObservableCollection<CustomCommand> EditableCustomCommands { get; set; }
         private ObservableCollection<HotkeyDisplay> _displayItems = new();
         
         private int _commandCount = 0;
@@ -46,18 +48,31 @@ namespace iikoServiceHelper
         private bool _isLightTheme = false;
         private ThemeSettings _themeSettings = new ThemeSettings();
         
-        private readonly CommandExecutionService _commandExecutionService;
+        private readonly ICommandExecutionService _commandExecutionService;
         private readonly UpdateService _updateService;
         private readonly CrmAutoLoginService _crmAutoLoginService;
         private readonly TrayIconService _trayIconService;
+        private readonly CustomCommandService _customCommandService;
         private AltBlockerService? _altBlockerService;
+        private bool _isRecordingHotkey = false;
+        private TextBox? _activeHotkeyRecordingBox;
+        private string? _originalHotkeyText;
 
         private Popup? _tempNotificationPopup;
         private DispatcherTimer? _tempNotificationTimer;
 
-        public MainWindow()
+        public MainWindow(
+            ICommandExecutionService commandExecutionService, 
+            HotkeyManager hotkeyManager, 
+            AppSettings appSettings,
+            CustomCommandService customCommandService)
         {
             InitializeComponent();
+            _appSettings = appSettings;
+            _customCommandService = customCommandService;
+
+            EditableCustomCommands = new ObservableCollection<CustomCommand>();
+            CustomCommandsGrid.ItemsSource = EditableCustomCommands;
 
             // Paths setup
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -69,9 +84,12 @@ namespace iikoServiceHelper
             DetailedLogFile = Path.Combine(AppDir, "detailed_log.txt");
 
             // Init Services
-            _hotkeyManager = new HotkeyManager();
-            _commandExecutionService = new CommandExecutionService(this, _hotkeyManager);
-            _updateService = new UpdateService(ShowUpdateDialog, ShowCustomMessage);
+            _hotkeyManager = hotkeyManager;
+            _commandExecutionService = commandExecutionService;
+            // Устанавливаем хост для сервиса команд (разрываем циклическую зависимость)
+            _commandExecutionService.SetHost(this);
+
+            _updateService = new UpdateService(ShowUpdateDialog, ShowCustomMessage); // UpdateService можно тоже внедрить через DI
             _crmAutoLoginService = new CrmAutoLoginService();
 
             // UI-dependent services
@@ -79,7 +97,9 @@ namespace iikoServiceHelper
             _altBlockerService = new AltBlockerService(_hotkeyManager, LogDetailed);
 
             // Init Logic
-            InitializeHotkeys();
+            var initialCommands = _customCommandService.LoadCommands();
+            InitializeHotkeys(initialCommands);
+            LoadCustomCommandsForEditor(initialCommands);
             LoadNotes();
             LoadThemeSettings();
             LoadSettings();
@@ -112,7 +132,7 @@ namespace iikoServiceHelper
                 if (this.WindowState == WindowState.Minimized)
                 {
                     this.Hide();
-                    _trayIconService.ShowBalloonTip(2000, "iikoServiceHelper", "Приложение работает в фоне", Forms.ToolTipIcon.Info);
+                    _trayIconService.ShowBalloonTip(_appSettings.NotificationDurationSeconds * 1000, "iikoServiceHelper", "Приложение работает в фоне", Forms.ToolTipIcon.Info);
                 }
             };
 
@@ -218,8 +238,21 @@ namespace iikoServiceHelper
             }
             catch { }
         }
+        private void LoadCustomCommandsForEditor(List<CustomCommand> commandsToLoad)
+        {
+            var defaultTriggers = DefaultCommandsProvider.GetDefaultCommands()
+                .Select(c => c.Trigger)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        private void InitializeHotkeys()
+            EditableCustomCommands.Clear();
+            foreach(var cmd in commandsToLoad.Where(c => c.Type != "System"))
+            {
+                cmd.IsReadOnly = defaultTriggers.Contains(cmd.Trigger);
+                EditableCustomCommands.Add(cmd);
+            }
+        }
+        
+        private void InitializeHotkeys(IEnumerable<CustomCommand> commandsToRegister)
         {
             _hotkeyActions.Clear();
             _displayItems.Clear();
@@ -256,7 +289,7 @@ namespace iikoServiceHelper
                 }
             };
 
-            var (actions, displayItems) = HotkeyProvider.RegisterAll(_commandExecutionService, openCrmDialog);
+            var (actions, displayItems) = HotkeyProvider.RegisterAll(_commandExecutionService, openCrmDialog, commandsToRegister);
 
             _hotkeyActions = actions;
             foreach (var item in displayItems)
@@ -276,7 +309,7 @@ namespace iikoServiceHelper
             }
             else
             {
-                _hotkeyManager = new HotkeyManager();
+                _hotkeyManager = new HotkeyManager(); // Здесь лучше использовать фабрику или пересоздавать через DI, но для простоты оставим так
                 _hotkeyManager.HotkeyHandler = OnGlobalHotkey;
                 _altBlockerService = new AltBlockerService(_hotkeyManager, LogDetailed);
                 UpdateAltHookState(chkAltBlocker.IsChecked == true);
@@ -295,6 +328,41 @@ namespace iikoServiceHelper
 
         private bool OnGlobalHotkey(string keyCombo)
         {
+            if (_isRecordingHotkey)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (_activeHotkeyRecordingBox == null) return;
+
+                    // Валидация: должны быть модификаторы
+                    if (!keyCombo.Contains('+'))
+                    {
+                        ShowTempNotification("Сочетание должно содержать клавишу-модификатор.");
+                        return;
+                    }
+
+                    // Проверка на дубликаты
+                    if (_activeHotkeyRecordingBox.DataContext is CustomCommand currentCommand)
+                    {
+                        if (IsHotkeyDuplicate(keyCombo, currentCommand))
+                        {
+                            ShowTempNotification("Это сочетание уже используется.");
+                            return;
+                        }
+                    }
+
+                    // Успех: обновляем UI и перемещаем фокус
+                    _activeHotkeyRecordingBox.Text = keyCombo;
+                    _activeHotkeyRecordingBox.SetResourceReference(TextBox.ForegroundProperty, "BrushInputForeground");
+
+                    // Перемещаем фокус на следующий элемент
+                    var request = new TraversalRequest(FocusNavigationDirection.Next);
+                    _activeHotkeyRecordingBox.MoveFocus(request);
+                });
+
+                return true; // Подавляем дальнейшую обработку клавиши
+            }
+
             Debug.WriteLine($"Detected: {keyCombo}"); // Debugging
             if (_hotkeyActions.TryGetValue(keyCombo, out var action))
             {
@@ -1233,8 +1301,172 @@ namespace iikoServiceHelper
         private void ApplyTheme(bool isLight)
         {
             var themeSet = isLight ? _themeSettings.LightTheme : _themeSettings.DarkTheme;
-            ThemeService.ApplyTheme(this.Resources, themeSet);
+            ThemeService.ApplyTheme(Application.Current.Resources, themeSet);
             if (btnThemeSwitch != null) btnThemeSwitch.Content = isLight ? "☾" : "☀";
         }
+
+        private void AddCustomCommand_Click(object sender, RoutedEventArgs e)
+        {
+            EditableCustomCommands.Add(new CustomCommand { Description = "Новая команда", Type = "Reply" });
+        }
+
+        private void DeleteCustomCommand_Click(object sender, RoutedEventArgs e)
+        {
+            if (CustomCommandsGrid.SelectedItem is CustomCommand selected)
+            {
+                EditableCustomCommands.Remove(selected);
+            }
+            else
+            {
+                ShowCustomMessage("Удаление", "Сначала выберите команду для удаления.", true);
+            }
+        }
+
+        private void SaveCustomCommands_Click(object sender, RoutedEventArgs e)
+        {
+            // 1. Проверка на пустые триггеры
+            if (EditableCustomCommands.Any(c => string.IsNullOrWhiteSpace(c.Trigger)))
+            {
+                ShowCustomMessage("Сохранение", "У всех команд должно быть заполнено поле 'СОЧЕТАНИЕ'.", true);
+                return;
+            }
+
+            // 2. Проверка на дубликаты внутри пользовательских команд
+            var editableCommands = EditableCustomCommands.ToList();
+            var duplicateCustomTriggers = editableCommands
+                .GroupBy(c => c.Trigger, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToList();
+
+            if (duplicateCustomTriggers.Any())
+            {
+                ShowCustomMessage("Ошибка дублирования", $"Найдены дубликаты в пользовательских командах:\n{string.Join(", ", duplicateCustomTriggers)}", true);
+                return;
+            }
+
+            // 3. Проверка на конфликт с командами типа "System"
+            var allDefaultCommands = DefaultCommandsProvider.GetDefaultCommands();
+            var systemTriggers = allDefaultCommands
+                .Where(c => c.Type == "System")
+                .Select(c => c.Trigger)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var conflictingTriggers = editableCommands
+                .Where(c => systemTriggers.Contains(c.Trigger))
+                .Select(c => c.Trigger)
+                .ToList();
+
+            if (conflictingTriggers.Any())
+            {
+                ShowCustomMessage("Конфликт команд", $"Следующие сочетания зарезервированы системными командами:\n{string.Join(", ", conflictingTriggers)}", true);
+                return;
+            }
+
+            // Сохраняем только редактируемые команды, но инициализируем все
+            var allCommandsToRegister = new List<CustomCommand>(editableCommands);
+            var systemCommands = allDefaultCommands.Where(c => c.Type == "System");
+            allCommandsToRegister.AddRange(systemCommands);
+
+            _customCommandService.SaveCommands(editableCommands);
+            InitializeHotkeys(allCommandsToRegister);
+
+            ShowTempNotification("Команды сохранены и применены!");
+        }
+
+        private void ResetCustomCommands_Click(object sender, RoutedEventArgs e)
+        {
+            var result = MessageBox.Show(
+                "Вы уверены, что хотите сбросить все команды к стандартным значениям?\n\nВсе ваши изменения будут потеряны.",
+                "Подтверждение сброса",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                var defaultCommands = DefaultCommandsProvider.GetDefaultCommands();
+                LoadCustomCommandsForEditor(defaultCommands);
+                ShowTempNotification("Команды сброшены. Нажмите 'Сохранить', чтобы применить.");
+            }
+        }
+
+        private void CustomCommandsGrid_BeginningEdit(object sender, DataGridBeginningEditEventArgs e)
+        {
+            if (e.Row.Item is CustomCommand command && command.IsReadOnly)
+            {
+                e.Cancel = true;
+                ShowTempNotification("Стандартные команды нельзя редактировать.");
+            }
+        }
+
+        private bool IsHotkeyDuplicate(string newHotkey, CustomCommand currentCommand)
+        {
+            // Проверка на дубликаты среди других пользовательских команд
+            if (EditableCustomCommands.Any(c => c != currentCommand && c.Trigger.Equals(newHotkey, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            // Проверка на конфликт с системными командами, которые не отображаются в редакторе
+            var systemTriggers = DefaultCommandsProvider.GetDefaultCommands()
+                .Where(c => c.Type == "System")
+                .Select(c => c.Trigger)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (systemTriggers.Contains(newHotkey))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private void CommandsTab_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if ((Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl)) &&
+                (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift)))
+            {
+                if (CommandEditorTab.Visibility == Visibility.Visible)
+                {
+                    CommandEditorTab.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    CommandEditorTab.Visibility = Visibility.Visible;
+                    if (sender is TabItem tabItem && tabItem.Parent is TabControl tabControl)
+                    {
+                        tabControl.SelectedItem = CommandEditorTab;
+                    }
+                }
+            }
+        }
+
+        private void HotkeyTextBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is TextBox txtBox && e.OriginalSource == sender)
+            {
+                _originalHotkeyText = txtBox.Text;
+                txtBox.Text = "[ ЗАПИСЬ... ]";
+                txtBox.Foreground = (System.Windows.Media.Brush)FindResource("BrushAccent");
+                _activeHotkeyRecordingBox = txtBox;
+                _isRecordingHotkey = true;
+            }
+        }
+
+        private void HotkeyTextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is TextBox txtBox && _isRecordingHotkey)
+            {
+                if (txtBox.Text == "[ ЗАПИСЬ... ]")
+                {
+                    txtBox.Text = _originalHotkeyText;
+                }
+                // Restore original color
+                txtBox.SetResourceReference(TextBox.ForegroundProperty, "BrushInputForeground");
+                _isRecordingHotkey = false;
+                _activeHotkeyRecordingBox = null;
+            }
+        }
+
     }
 }
