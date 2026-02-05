@@ -38,6 +38,8 @@ namespace iikoServiceHelper.Models
             public int ActionPause { get; set; } = 100;
             public int FocusWait { get; set; } = 500;
         }
+        
+        public bool UsePasteModeForQuickReplies { get; set; } = false;
 
         private static string EncryptPassword(string password)
         {

@@ -5,6 +5,55 @@
         Background="#121212" Foreground="White" Icon="pack://application:,,,/Logo.ico"
         xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <Grid Background="{DynamicResource BrushWindowBackground}">
+        <Grid.Resources>
+            <Style x:Key="Win11ToggleStyle" TargetType="{x:Type CheckBox}">
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Height" Value="10" />
+                <Setter Property="Width" Value="20" />
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type CheckBox}">
+                            <Grid>
+                                <Border x:Name="Track" CornerRadius="5" Height="10" Background="{DynamicResource BrushCounterBackground}" BorderBrush="{DynamicResource BrushCounterBorder}" BorderThickness="1" />
+                                <Border x:Name="Thumb" CornerRadius="4" Height="8" Width="8" Background="#FAFAFA" HorizontalAlignment="Left" Margin="1,0,0,0">
+                                    <Border.Effect>
+                                        <DropShadowEffect ShadowDepth="0.5" Direction="270" Color="Black" Opacity="0.2" BlurRadius="1"/>
+                                    </Border.Effect>
+                                </Border>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Track" Property="Background" Value="{DynamicResource BrushAccent}" />
+                                    <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource BrushAccent}" />
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <ThicknessAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="Margin" To="11,0,0,0" Duration="0:0:0.15">
+                                                    <ThicknessAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></ThicknessAnimation.EasingFunction>
+                                                </ThicknessAnimation>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <ThicknessAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="Margin" To="1,0,0,0" Duration="0:0:0.15">
+                                                    <ThicknessAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></ThicknessAnimation.EasingFunction>
+                                                </ThicknessAnimation>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Thumb" Property="Background" Value="#E0E0E0"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </Grid.Resources>
 
         <!-- Header / Title Area Decoration -->
         <Border Height="1" VerticalAlignment="Top" Margin="20,50,20,0" Background="#333333"/>
@@ -13,31 +62,61 @@
             <!-- Tab 1: Reference (ReadOnly) -->
             <TabItem Header="КОМАНДЫ" PreviewMouseLeftButtonDown="CommandsTab_PreviewMouseLeftButtonDown">
                 <Grid Margin="10,0,10,10">
-                    <DataGrid x:Name="ReferenceGrid" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" FontSize="14" SelectionUnit="Cell" Focusable="False">
+                    <DataGrid x:Name="ReferenceGrid" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" FontSize="14" SelectionUnit="Cell" Focusable="False"
+                              AlternationCount="2" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#333333" BorderThickness="0" RowHeight="33">
                         <DataGrid.Resources>
                             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent"/>
                             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="Transparent"/>
                             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="{DynamicResource BrushAccent}"/>
                             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="{DynamicResource BrushAccent}"/>
+                            <LinearGradientBrush x:Key="ReversedGradientBrush" StartPoint="1,1" EndPoint="0,0">
+                                <GradientStop Color="#150020" Offset="0.0"/>
+                                <GradientStop Color="#1A0029" Offset="1.0"/>
+                            </LinearGradientBrush>
                         </DataGrid.Resources>
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Background" Value="{StaticResource ReversedGradientBrush}" />
+                                <Style.Triggers>
+                                    <Trigger Property="AlternationIndex" Value="1">
+                                        <Setter Property="Background" Value="#150020" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="СОЧЕТАНИЕ" Binding="{Binding Keys}" Width="250" FontWeight="Bold">
+                            <DataGridTextColumn Header="СОЧЕТАНИЕ" Binding="{Binding Keys}" Width="250">
                                 <DataGridTextColumn.CellStyle>
                                     <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
-                                        <Setter Property="Padding" Value="11,9"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                        <Setter Property="FontWeight" Value="Bold"/>
                                     </Style>
                                 </DataGridTextColumn.CellStyle>
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextAlignment" Value="Left"/>
+                                        <Setter Property="Margin" Value="12,0,0,0"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
                             <DataGridTextColumn Header="ОПИСАНИЕ" Binding="{Binding Desc}" Width="*">
                                 <DataGridTextColumn.CellStyle>
                                     <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
                                         <Setter Property="ToolTip" Value="{Binding FullCommand}" />
-                                        <Setter Property="Padding" Value="12,12,12,12"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
                                     </Style>
                                 </DataGridTextColumn.CellStyle>
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Setter Property="TextAlignment" Value="Left"/>
+                                        <Setter Property="Margin" Value="12,0,0,0"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
@@ -238,8 +317,43 @@
             </Border>
         </StackPanel>
 
+        <!-- Quick Replies Input Mode Selector -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="80,0,0,5">
+            <TextBlock Text="Ввод" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="11">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="#888888"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ElementName=togglePasteMode, Path=IsChecked}" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource BrushAccent}"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+            <CheckBox x:Name="togglePasteMode"
+                          IsChecked="False"
+                          Click="TogglePasteMode_Click"
+                          ToolTip="Режим ввода текста: Ввод (выкл) или Вставка (вкл)"
+                          Style="{StaticResource Win11ToggleStyle}" />
+            <TextBlock Text="Вставка" VerticalAlignment="Center" Margin="5,0,0,0" FontSize="11">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="#888888"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ElementName=togglePasteMode, Path=IsChecked}" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource BrushAccent}"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </StackPanel>
+
         <!-- Update Link (Bottom Left) -->
-        <TextBlock x:Name="txtUpdateLink" Text="Обновить" HorizontalAlignment="Left" VerticalAlignment="Bottom" 
+        <TextBlock x:Name="txtUpdateLink" Text="Обновить" HorizontalAlignment="Left" VerticalAlignment="Bottom"
                    Margin="15,5,5,5" Foreground="#666666" FontSize="11" Cursor="Hand" MouseLeftButtonDown="TxtUpdateLink_Click">
             <TextBlock.Style>
                 <Style TargetType="TextBlock">
@@ -254,21 +368,21 @@
         </TextBlock>
 
         <!-- Update Progress -->
-        <ProgressBar x:Name="pbUpdate" Width="150" Height="4" VerticalAlignment="Bottom" HorizontalAlignment="Center" 
+        <ProgressBar x:Name="pbUpdate" Width="150" Height="4" VerticalAlignment="Bottom" HorizontalAlignment="Center"
                      Margin="0,0,0,10" Visibility="Collapsed"
                      Background="#25252A" BorderBrush="#3E3E42" Foreground="{DynamicResource BrushAccent}"/>
 
         <!-- Credits -->
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,5,5">
-            <Button Content="Сбросить темы" Click="BtnResetThemes_Click" 
-                    Height="20" Padding="5,0" Margin="0,0,10,0" 
+            <Button Content="Сбросить темы" Click="BtnResetThemes_Click"
+                    Height="20" Padding="5,0" Margin="0,0,10,0"
                     FontSize="11" BorderThickness="0" Background="Transparent" Foreground="#666666"
                     ToolTip="Сбросить цвета тем к значениям по умолчанию.&#x0a;Внимание: Пользовательские настройки цветов будут утеряны!"/>
-            <Button x:Name="btnThemeSwitch" Content="☀" Click="BtnThemeSwitch_Click" 
-                    Width="20" Height="20" Padding="0" Margin="0,0,10,0" 
+            <Button x:Name="btnThemeSwitch" Content="☀" Click="BtnThemeSwitch_Click"
+                    Width="20" Height="20" Padding="0" Margin="0,0,10,0"
                     FontSize="12" BorderThickness="0" Background="Transparent" Foreground="#666666"
                     ToolTip="Сменить тему (Светлая/Темная)"/>
-            <TextBlock Text="by Yustus  " VerticalAlignment="Center" 
+            <TextBlock Text="by Yustus  " VerticalAlignment="Center"
                        Foreground="#666666" FontSize="11" IsHitTestVisible="False"/>
         </StackPanel>
     </Grid>

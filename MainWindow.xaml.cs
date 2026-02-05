@@ -57,6 +57,20 @@ namespace iikoServiceHelper
         private bool _isRecordingHotkey = false;
         private TextBox? _activeHotkeyRecordingBox;
         private string? _originalHotkeyText;
+        
+        public bool UsePasteModeForQuickReplies
+        {
+            get => _appSettings.UsePasteModeForQuickReplies;
+            set
+            {
+                _appSettings.UsePasteModeForQuickReplies = value;
+                var toggle = (CheckBox)FindName("togglePasteMode");
+                if (toggle != null)
+                {
+                    toggle.IsChecked = value;
+                }
+            }
+        }
 
         private Popup? _tempNotificationPopup;
         private DispatcherTimer? _tempNotificationTimer;
@@ -116,7 +130,7 @@ namespace iikoServiceHelper
             if (_hotkeyManager != null) _hotkeyManager.HotkeyHandler = OnGlobalHotkey;
             
             // Handle close
-            this.Closing += (s, e) => 
+            this.Closing += (s, e) =>
             {
                 SaveNotes();
                 SaveSettings();
@@ -478,6 +492,13 @@ namespace iikoServiceHelper
         }
         #endregion
 
+        private void TogglePasteMode_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is CheckBox toggle)
+            {
+                UsePasteModeForQuickReplies = toggle.IsChecked == true;
+            }
+        }
         // Notes
         private void LoadNotes()
         {
@@ -792,6 +813,9 @@ namespace iikoServiceHelper
 
                         _isLightTheme = settings.IsLightTheme;
                         ApplyTheme(_isLightTheme);
+                        
+                        // Загружаем настройку режима вставки
+                        UsePasteModeForQuickReplies = settings.UsePasteModeForQuickReplies;
                     }
                     else
                     {
@@ -840,7 +864,8 @@ namespace iikoServiceHelper
                     IsAltBlockerEnabled = chkAltBlocker?.IsChecked == true,
                     LastUpdateCheck = _lastUpdateCheck,
                     CommandCount = _commandCount,
-                    IsLightTheme = _isLightTheme
+                    IsLightTheme = _isLightTheme,
+                    UsePasteModeForQuickReplies = UsePasteModeForQuickReplies
                 };
                 var json = JsonSerializer.Serialize(settings);
                 File.WriteAllText(SettingsFile, json);

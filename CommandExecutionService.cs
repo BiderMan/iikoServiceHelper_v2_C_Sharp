@@ -274,6 +274,46 @@ namespace iikoServiceHelper.Services
 
         private async Task TypeText(string text, CancellationToken token)
         {
+            // Проверяем, нужно ли использовать режим вставки для быстрых ответов
+            if (_settings.UsePasteModeForQuickReplies)
+            {
+                Log($"Режим вставки активен. Вставляем текст: {text}");
+                // Режим вставки: копируем в буфер обмена, вставляем, затем очищаем историю буфера
+                try
+                {
+                    _host?.RunOnUIThread(() => _host.ClipboardSetText(text));
+                    await Task.Delay(_settings.Delays.ActionPause, token);
+                    
+                    // Используем более прямой способ вставки через нативный метод
+                    NativeMethods.SendCtrlV();
+                    Log("Выполнена вставка через NativeMethods.SendCtrlV()");
+                    await Task.Delay(150, token); // Дополнительная задержка после вставки, перед очисткой
+                    
+                    if (_host != null)
+                    {
+                        // Удаляем 1 элемент, так как мы добавили только его
+                        await _host.CleanClipboardHistoryAsync(1);
+                        Log("Запись удалена из истории буфера обмена.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"Ошибка в режиме вставки: {ex.Message}", LogLevel.Warning);
+                    // В случае ошибки возвращаемся к обычному режиму ввода
+                    await TypeTextNormal(text, token);
+                }
+            }
+            else
+            {
+                Log($"Обычный режим ввода. Вводим текст: {text}");
+                // Обычный режим ввода
+                await TypeTextNormal(text, token);
+            }
+        }
+        
+        private async Task TypeTextNormal(string text, CancellationToken token)
+        {
+            text = text.TrimEnd('\r', '\n');
             var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             for (int i = 0; i < lines.Length; i++)
             {

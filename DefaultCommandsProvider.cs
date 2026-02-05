@@ -32,7 +32,7 @@ namespace iikoServiceHelper.Services
                 new CustomCommand { Trigger = "Alt+J", Description = "Ожидайте от нас обратную связь.", Type = "Reply", Content = "Ожидайте от нас обратную связь." },
                 new CustomCommand { Trigger = "Alt+NumPad4", Description = "Заявку закрываем, нет ОС.", Type = "Reply", Content = "Заявку закрываем, так как не получили от Вас обратную связь." },
                 new CustomCommand { Trigger = "Alt+P", Description = "Заявку закрываем, нет ОС.", Type = "Reply", Content = "Заявку закрываем, так как не получили от Вас обратную связь." },
-                new CustomCommand { Trigger = "Alt+NumPad5", Description = "Ваша заявка передана специалисту.", Type = "Reply", Content = "Ваша заявка передана специалисту.\nОтветственный специалист свяжется с Вами в ближайшее время." },
+                new CustomCommand { Trigger = "Alt+NumPad5", Description = "Ваша заявка передана специалисту.", Type = "Reply", Content = "Ваша заявка передана специалисту.  \nОтветственный специалист свяжется с Вами в ближайшее время.  " },
                 new CustomCommand { Trigger = "Alt+G", Description = "Ваша заявка передана специалисту.", Type = "Reply", Content = "Ваша заявка передана специалисту.\nОтветственный специалист свяжется с Вами в ближайшее время." },
                 new CustomCommand { Trigger = "Alt+NumPad6", Description = "Не удалось связаться с Вами по номеру:", Type = "Reply", Content = "Не удалось связаться с Вами по номеру:\nПодскажите, когда с Вами можно будет связаться?" },
                 new CustomCommand { Trigger = "Alt+H", Description = "Не удалось связаться с Вами по номеру:", Type = "Reply", Content = "Не удалось связаться с Вами по номеру:\nПодскажите, когда с Вами можно будет связаться?" },
