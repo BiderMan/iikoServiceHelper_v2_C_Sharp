@@ -111,9 +111,14 @@ namespace iikoServiceHelper
             _altBlockerService = new AltBlockerService(_hotkeyManager, LogDetailed);
 
             // Init Logic
-            var initialCommands = _customCommandService.LoadCommands();
-            InitializeHotkeys(initialCommands);
-            LoadCustomCommandsForEditor(initialCommands);
+            // Загружаем пользовательские команды и ВСЕГДА добавляем к ним системные,
+            // чтобы системные хоткеи (Alt+Space, Alt+Q) не пропадали после сохранения.
+            var customCommands = _customCommandService.LoadCommands();
+            var systemCommands = DefaultCommandsProvider.GetDefaultCommands().Where(c => c.Type == "System");
+            var allInitialCommands = new List<CustomCommand>(customCommands);
+            allInitialCommands.AddRange(systemCommands);
+            InitializeHotkeys(allInitialCommands);
+            LoadCustomCommandsForEditor(allInitialCommands); // Редактор сам отфильтрует системные
             LoadNotes();
             LoadThemeSettings();
             LoadSettings();
@@ -474,17 +479,27 @@ namespace iikoServiceHelper
                 try
                 {
                     // Requires Windows 10/11 and WinRT API support
-                    if (!Windows.ApplicationModel.DataTransfer.Clipboard.IsHistoryEnabled()) return;
+                    if (!Windows.ApplicationModel.DataTransfer.Clipboard.IsHistoryEnabled())
+                    {
+                        LogDetailed("Clipboard history is disabled, skipping cleanup.");
+                        return;
+                    }
 
                     var history = await Windows.ApplicationModel.DataTransfer.Clipboard.GetHistoryItemsAsync();
-                    if (history.Status == Windows.ApplicationModel.DataTransfer.ClipboardHistoryItemsResultStatus.Success)
+                    if (history.Status == Windows.ApplicationModel.DataTransfer.ClipboardHistoryItemsResultStatus.Success && history.Items.Count > 0)
                     {
-                        var items = history.Items;
-                        // Items are sorted by time (most recent first)
-                        for (int i = 0; i < itemsToDelete && i < items.Count; i++)
+                        // Создаем копию списка элементов для удаления, чтобы избежать проблем с модификацией коллекции
+                        var itemsToDeleteList = history.Items.Take(itemsToDelete).ToList();
+                        LogDetailed($"Attempting to delete {itemsToDeleteList.Count} items from clipboard history.");
+
+                        foreach (var item in itemsToDeleteList)
                         {
-                            Windows.ApplicationModel.DataTransfer.Clipboard.DeleteItemFromHistory(items[i]);
+                            Windows.ApplicationModel.DataTransfer.Clipboard.DeleteItemFromHistory(item);
+                            // Добавляем небольшую паузу. API истории буфера обмена может работать нестабильно
+                            // при слишком быстрых последовательных удалениях. Эта пауза решает проблему.
+                            await Task.Delay(50);
                         }
+                        LogDetailed($"Cleanup task finished for {itemsToDeleteList.Count} items.");
                     }
                 }
                 catch (Exception ex) { LogDetailed($"Clipboard History Error: {ex.Message}"); }

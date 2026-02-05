@@ -25,6 +25,7 @@ namespace iikoServiceHelper.Services
         private volatile bool _isQueueRunning = false;
         private string _currentActionName = "";
         private volatile bool _cancelCurrentAction = false;
+        private int _pasteCount = 0;
         private CancellationTokenSource? _currentCts;
 
         public CommandExecutionService(HotkeyManager hotkeyManager, ILogger<CommandExecutionService> logger, AppSettings settings)
@@ -117,6 +118,16 @@ namespace iikoServiceHelper.Services
 
                 _host?.RunOnUIThread(async () =>
                 {
+                    // "Умная" очистка: выполняется один раз после завершения всей очереди
+                    if (_pasteCount > 0)
+                    {
+                        Log($"Queue finished. Cleaning {_pasteCount} items from clipboard history.");
+                        int countToClean = _pasteCount;
+                        _pasteCount = 0; // Сбрасываем счетчик
+                        await _host.CleanClipboardHistoryAsync(countToClean);
+                        Log("Clipboard history cleaned.");
+                    }
+
                     await Task.Delay(250); // Короткая задержка перед скрытием
                     if (!_isQueueRunning) _host?.HideOverlay();
                 });
@@ -165,6 +176,7 @@ namespace iikoServiceHelper.Services
             {
                 clearedCount = _commandQueue.Count;
                 _commandQueue.Clear();
+                _pasteCount = 0; // Сбрасываем счетчик вставленных элементов
                 wasRunning = _isQueueRunning;
             }
 
@@ -209,7 +221,7 @@ namespace iikoServiceHelper.Services
                 switch (command)
                 {
                     case "Bot":
-                        await TypeText("@chat_bot", token);
+                        await TypeText("@chat_bot", token, forceTypeMode: true);
                         await Task.Delay(_settings.Delays.ActionPause, token); CheckCancellation(token);
                         NativeMethods.SendKey(NativeMethods.VK_RETURN);
                         if (parameter is string args && !string.IsNullOrEmpty(args))
@@ -217,12 +229,12 @@ namespace iikoServiceHelper.Services
                             await Task.Delay(200, token); CheckCancellation(token);
                             NativeMethods.SendKey(NativeMethods.VK_SPACE);
                             await Task.Delay(_settings.Delays.KeyPress, token); CheckCancellation(token);
-                            await TypeText(args, token);
+                            await TypeText(args, token, forceTypeMode: true);
                         }
                         break;
 
                     case "BotCall":
-                        await TypeText("@chat_bot", token);
+                        await TypeText("@chat_bot", token, forceTypeMode: true);
                         await Task.Delay(_settings.Delays.ActionPause, token); CheckCancellation(token);
                         NativeMethods.SendKey(NativeMethods.VK_RETURN);
                         await Task.Delay(_settings.Delays.ActionPause, token); CheckCancellation(token);
@@ -234,7 +246,8 @@ namespace iikoServiceHelper.Services
                         if (parameter is string text)
                         {
                             await TypeText(text, token);
-                            await Task.Delay(150, token); CheckCancellation(token);
+                            // Небольшая задержка, чтобы приложение-получатель успело обработать ввод/вставку перед нажатием Enter.
+                            await Task.Delay(50, token); CheckCancellation(token);
                             NativeMethods.SendKey(NativeMethods.VK_RETURN);
                         }
                         break;
@@ -272,29 +285,24 @@ namespace iikoServiceHelper.Services
             _host?.RunOnUIThread(UpdateOverlayMessage);
         }
 
-        private async Task TypeText(string text, CancellationToken token)
+        private async Task TypeText(string text, CancellationToken token, bool forceTypeMode = false)
         {
             // Проверяем, нужно ли использовать режим вставки для быстрых ответов
-            if (_settings.UsePasteModeForQuickReplies)
+            if (!forceTypeMode && _settings.UsePasteModeForQuickReplies)
             {
                 Log($"Режим вставки активен. Вставляем текст: {text}");
                 // Режим вставки: копируем в буфер обмена, вставляем, затем очищаем историю буфера
                 try
                 {
                     _host?.RunOnUIThread(() => _host.ClipboardSetText(text));
-                    await Task.Delay(_settings.Delays.ActionPause, token);
+                    // Задержка перед вставкой не нужна, т.к. RunOnUIThread (Dispatcher.Invoke) - блокирующий вызов.
                     
                     // Используем более прямой способ вставки через нативный метод
                     NativeMethods.SendCtrlV();
                     Log("Выполнена вставка через NativeMethods.SendCtrlV()");
-                    await Task.Delay(150, token); // Дополнительная задержка после вставки, перед очисткой
-                    
-                    if (_host != null)
-                    {
-                        // Удаляем 1 элемент, так как мы добавили только его
-                        await _host.CleanClipboardHistoryAsync(1);
-                        Log("Запись удалена из истории буфера обмена.");
-                    }
+                    _pasteCount++;
+                    Log($"Paste operation registered. Total pastes in queue: {_pasteCount}");
+                    // Задержка после вставки перенесена в вызывающий метод (ExecuteCommand), чтобы она была непосредственно перед нажатием Enter.
                 }
                 catch (Exception ex)
                 {
@@ -305,7 +313,14 @@ namespace iikoServiceHelper.Services
             }
             else
             {
-                Log($"Обычный режим ввода. Вводим текст: {text}");
+                if (forceTypeMode)
+                {
+                    Log($"Принудительный режим ввода для команды БОТА. Вводим текст: {text}");
+                }
+                else
+                {
+                    Log($"Обычный режим ввода. Вводим текст: {text}");
+                }
                 // Обычный режим ввода
                 await TypeTextNormal(text, token);
             }

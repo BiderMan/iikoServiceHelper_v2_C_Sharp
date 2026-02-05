@@ -17,6 +17,7 @@ namespace iikoServiceHelper.Services
         private readonly Func<string, string, bool> _showUpdateDialog;
         private readonly Action<string, string, bool> _showCustomMessage;
 
+        private const string GitHubToken = "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";
         public UpdateService(Func<string, string, bool> showUpdateDialog, Action<string, string, bool> showCustomMessage)
         {
             _showUpdateDialog = showUpdateDialog;
@@ -37,6 +38,7 @@ namespace iikoServiceHelper.Services
 
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("iikoServiceHelper");
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", GitHubToken);
                 var json = await client.GetStringAsync("https://api.github.com/repos/BiderMan/iikoServiceHelper_v2_C_Sharp/releases/latest");
 
                 using var doc = JsonDocument.Parse(json);
