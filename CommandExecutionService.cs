@@ -16,7 +16,7 @@ namespace iikoServiceHelper.Services
     public class CommandExecutionService : ICommandExecutionService
     {
         private ICommandHost? _host;
-        private readonly HotkeyManager _hotkeyManager;
+        private readonly IHotkeyManager _hotkeyManager;
         private readonly ILogger<CommandExecutionService> _logger;
         private readonly AppSettings _settings;
 
@@ -27,8 +27,11 @@ namespace iikoServiceHelper.Services
         private volatile bool _cancelCurrentAction = false;
         private int _pasteCount = 0;
         private CancellationTokenSource? _currentCts;
+        private DateTime _clipboardStartTime = DateTime.MinValue;
+        private CancellationTokenSource? _cleanupTimerCts;
+        private const int CleanupDelayMs = 1500; // 1.5 секунды задержки перед очисткой
 
-        public CommandExecutionService(HotkeyManager hotkeyManager, ILogger<CommandExecutionService> logger, AppSettings settings)
+        public CommandExecutionService(IHotkeyManager hotkeyManager, ILogger<CommandExecutionService> logger, AppSettings settings)
         {
             _hotkeyManager = hotkeyManager;
             _logger = logger;
@@ -58,12 +61,12 @@ namespace iikoServiceHelper.Services
                 if (!_isQueueRunning)
                 {
                     _isQueueRunning = true;
-                    Task.Run(ProcessQueue);
+                    _ = Task.Run(ProcessQueueAsync);
                 }
             }
         }
 
-        private async void ProcessQueue()
+        private async Task ProcessQueueAsync()
         {
             try
             {
@@ -116,20 +119,10 @@ namespace iikoServiceHelper.Services
                     Log($"Finished item: {item.HotkeyName}. Duration: {sw.ElapsedMilliseconds}ms");
                 }
 
-                _host?.RunOnUIThread(async () =>
+                _host?.RunOnUIThread(() =>
                 {
-                    // "Умная" очистка: выполняется один раз после завершения всей очереди
-                    if (_pasteCount > 0)
-                    {
-                        Log($"Queue finished. Cleaning {_pasteCount} items from clipboard history.");
-                        int countToClean = _pasteCount;
-                        _pasteCount = 0; // Сбрасываем счетчик
-                        await _host.CleanClipboardHistoryAsync(countToClean);
-                        Log("Clipboard history cleaned.");
-                    }
-
-                    await Task.Delay(250); // Короткая задержка перед скрытием
-                    if (!_isQueueRunning) _host?.HideOverlay();
+                    // Запускаем асинхронную операцию очистки
+                    _ = ProcessQueueCleanupAsync();
                 });
             }
             catch (Exception ex)
@@ -147,6 +140,61 @@ namespace iikoServiceHelper.Services
         {
             _logger.Log(level, message);
             _host?.LogDetailed(message);
+        }
+
+        /// <summary>
+        /// Обрабатывает очистку буфера обмена после завершения очереди команд.
+        /// </summary>
+        private async Task ProcessQueueCleanupAsync()
+        {
+            // "Умная" очистка: выполняется один раз после завершения всей очереди
+            // С таймером для ожидания новых команд
+            if (_pasteCount > 0)
+            {
+                Log($"Queue finished. Starting cleanup timer ({CleanupDelayMs}ms). Paste count: {_pasteCount}");
+                
+                // Отменяем предыдущий таймер, если есть
+                _cleanupTimerCts?.Cancel();
+                _cleanupTimerCts?.Dispose();
+                _cleanupTimerCts = new CancellationTokenSource();
+                
+                try
+                {
+                    // Ждём указанное время
+                    await Task.Delay(CleanupDelayMs, _cleanupTimerCts.Token);
+                    
+                    // Проверяем, не была ли очередь снова запущена
+                    if (!_isQueueRunning && _pasteCount > 0)
+                    {
+                        var startTime = _clipboardStartTime;
+                        var endTime = DateTime.Now;
+                        
+                        Log($"Cleanup timer elapsed. Cleaning clipboard history from {startTime:HH:mm:ss.fff} to {endTime:HH:mm:ss.fff}");
+                        
+                        int countToClean = _pasteCount;
+                        _pasteCount = 0; // Сбрасываем счетчик
+                        _clipboardStartTime = DateTime.MinValue; // Сбрасываем время
+                        
+                        if (_host != null)
+                        {
+                            await _host.ClearClipboardHistoryByTimeRangeAsync(startTime, endTime);
+                        }
+                        Log("Clipboard history cleaned.");
+                    }
+                    else
+                    {
+                        Log("Cleanup skipped - queue became active again.");
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    // Таймер был отменён - новая команда поступила
+                    Log("Cleanup timer cancelled - new command received.");
+                }
+            }
+
+            await Task.Delay(250); // Короткая задержка перед скрытием
+            if (!_isQueueRunning) _host?.HideOverlay();
         }
 
         private void UpdateOverlayMessage()
@@ -190,7 +238,8 @@ namespace iikoServiceHelper.Services
                 {
                     await Task.Delay(1000); // Показываем сообщение 1 секунду
                     // Перепроверяем, не запустилось ли что-то новое за это время
-                    if (!_isQueueRunning) {
+                    if (!_isQueueRunning)
+                    {
                         _host?.HideOverlay();
                     }
                 }
@@ -292,16 +341,29 @@ namespace iikoServiceHelper.Services
             {
                 Log($"Режим вставки активен. Вставляем текст: {text}");
                 // Режим вставки: копируем в буфер обмена, вставляем, затем очищаем историю буфера
+                
+                // Фиксируем время начала вставки при первой операции
+                if (_clipboardStartTime == DateTime.MinValue)
+                {
+                    _clipboardStartTime = DateTime.Now;
+                    Log($"Зафиксировано время начала вставки: {_clipboardStartTime:HH:mm:ss.fff}");
+                }
+                
                 try
                 {
                     _host?.RunOnUIThread(() => _host.ClipboardSetText(text));
                     // Задержка перед вставкой не нужна, т.к. RunOnUIThread (Dispatcher.Invoke) - блокирующий вызов.
-                    
+
                     // Используем более прямой способ вставки через нативный метод
                     NativeMethods.SendCtrlV();
                     Log("Выполнена вставка через NativeMethods.SendCtrlV()");
                     _pasteCount++;
                     Log($"Paste operation registered. Total pastes in queue: {_pasteCount}");
+                    
+                    // Очищаем буфер обмена сразу после вставки
+                    _host?.RunOnUIThread(() => _host.ClipboardClear());
+                    Log("Буфер обмена очищен после вставки.");
+                    
                     // Задержка после вставки перенесена в вызывающий метод (ExecuteCommand), чтобы она была непосредственно перед нажатием Enter.
                 }
                 catch (Exception ex)
@@ -325,7 +387,7 @@ namespace iikoServiceHelper.Services
                 await TypeTextNormal(text, token);
             }
         }
-        
+
         private async Task TypeTextNormal(string text, CancellationToken token)
         {
             text = text.TrimEnd('\r', '\n');
@@ -409,7 +471,7 @@ namespace iikoServiceHelper.Services
                 // Symbols
                 {'`', 'ё'}, {'~', 'Ё'}, {'@', '"'}, {'#', '№'}, {'$', ';'}, {'^', ':'}, {'&', '?'}, {'/', '.'}, {'?', ','}, {'|', '/'}, {'\\', '\\'}
             };
-            
+
             var sb = new StringBuilder(text.Length);
             foreach (char c in text)
             {

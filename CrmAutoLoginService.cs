@@ -8,6 +8,7 @@ using System.Threading;
 using iikoServiceHelper.Models;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using iikoServiceHelper.Constants;
 
 namespace iikoServiceHelper.Services
 {
@@ -29,8 +30,8 @@ namespace iikoServiceHelper.Services
         public CrmAutoLoginService()
         {
             _crmTimer = new DispatcherTimer();
-            _crmTimer.Interval = TimeSpan.FromMinutes(30);
-            _crmTimer.Tick += CrmTimer_Tick;
+            _crmTimer.Interval = TimeSpan.FromMinutes(AppConstants.CrmAutoLoginInterval);
+            _crmTimer.Tick += OnTimerTickAsync;
         }
 
         public void Start(string login, string password, BrowserItem browser)
@@ -43,11 +44,11 @@ namespace iikoServiceHelper.Services
 
             IsActive = true;
             _crmCts = new CancellationTokenSource();
-            
+
             LogMessage?.Invoke("Авто-вход включен.");
             StatusUpdated?.Invoke("Статус: Активно");
 
-            CrmTimer_Tick(null, null); // Запуск сразу
+            _ = HandleTimerTickAsync(); // Запуск сразу
             _crmTimer.Start();
         }
 
@@ -65,14 +66,20 @@ namespace iikoServiceHelper.Services
             StatusUpdated?.Invoke("Статус: Отключено");
         }
 
-        private async void CrmTimer_Tick(object? sender, EventArgs? e)
+        // Вынесенный метод для обработки тика таймера
+        private async void OnTimerTickAsync(object? sender, EventArgs? e)
+        {
+            await HandleTimerTickAsync().ConfigureAwait(false);
+        }
+
+        private async Task HandleTimerTickAsync()
         {
             if (_crmCts == null || _crmCts.IsCancellationRequested) return;
             LogMessage?.Invoke("Таймер сработал: Выполнение авто-входа...");
             LastRunUpdated?.Invoke($"Последний запуск: {DateTime.Now:HH:mm}");
             try
             {
-                await RunBackgroundLogin(_crmCts.Token);
+                await RunBackgroundLogin(_crmCts.Token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -95,19 +102,19 @@ namespace iikoServiceHelper.Services
                 LogMessage?.Invoke("Запуск авто-входа CRM...");
 
                 using var http = new HttpClient();
-                
-                // 1. Проверка порта 9222
-                LogMessage?.Invoke("Checking port 9222...");
+
+                // 1. Проверка порта Chrome Debug Protocol
+                LogMessage?.Invoke($"Checking port {AppConstants.ChromeDebugPort}...");
                 string versionJson = "";
                 try
                 {
-                    versionJson = await http.GetStringAsync("http://127.0.0.1:9222/json/version", token);
-                    LogMessage?.Invoke("Port 9222 is open.");
+                    versionJson = await http.GetStringAsync($"http://127.0.0.1:{AppConstants.ChromeDebugPort}/json/version", token).ConfigureAwait(false);
+                    LogMessage?.Invoke($"Port {AppConstants.ChromeDebugPort} is open.");
                 }
                 catch (Exception ex)
                 {
-                    LogMessage?.Invoke("Порт 9222 закрыт. Авто-вход отключен.");
-                    LogMessage?.Invoke("Требуется запуск браузера с параметром --remote-debugging-port=9222");
+                    LogMessage?.Invoke($"Порт {AppConstants.ChromeDebugPort} закрыт. Авто-вход отключен.");
+                    LogMessage?.Invoke($"Требуется запуск браузера с параметром --remote-debugging-port={AppConstants.ChromeDebugPort}");
                     LogMessage?.Invoke($"Подробности: {ex.Message}");
                     Stop(); // Stop the service as it cannot continue
                     return;
@@ -124,10 +131,10 @@ namespace iikoServiceHelper.Services
                             string remoteBrowser = browserEl.GetString() ?? "";
                             LogMessage?.Invoke($"Connected to: {remoteBrowser}");
 
-                            if (_browser.Name.Equals("Chrome", StringComparison.OrdinalIgnoreCase) && 
+                            if (_browser.Name.Equals("Chrome", StringComparison.OrdinalIgnoreCase) &&
                                 remoteBrowser.Contains("Edg", StringComparison.OrdinalIgnoreCase))
                             {
-                                LogMessage?.Invoke("WARN: Выбран Chrome, но порт 9222 занят Edge.");
+                                LogMessage?.Invoke($"WARN: Выбран Chrome, но порт {AppConstants.ChromeDebugPort} занят Edge.");
                             }
                         }
                     }
@@ -146,29 +153,29 @@ namespace iikoServiceHelper.Services
                 try
                 {
                     // Попытка создать вкладку в фоне (background: true) через Browser Target
-                    try 
+                    try
                     {
-                        string bgVersionJson = await http.GetStringAsync("http://127.0.0.1:9222/json/version", token);
+                        string bgVersionJson = await http.GetStringAsync($"http://127.0.0.1:{AppConstants.ChromeDebugPort}/json/version", token).ConfigureAwait(false);
                         string browserWsUrl = "";
                         using (var doc = JsonDocument.Parse(bgVersionJson))
                         {
-                            if (doc.RootElement.TryGetProperty("webSocketDebuggerUrl", out var wsEl)) 
+                            if (doc.RootElement.TryGetProperty("webSocketDebuggerUrl", out var wsEl))
                                 browserWsUrl = wsEl.GetString() ?? "";
                         }
 
                         if (!string.IsNullOrEmpty(browserWsUrl))
                         {
                             using var wsBrowser = new ClientWebSocket();
-                            await wsBrowser.ConnectAsync(new Uri(browserWsUrl), token);
-                            
+                            await wsBrowser.ConnectAsync(new Uri(browserWsUrl), token).ConfigureAwait(false);
+
                             var createCmd = new { id = 1, method = "Target.createTarget", @params = new { url = "http://crm.iiko.ru/", background = true } };
                             var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(createCmd));
-                            await wsBrowser.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
-                            
+                            await wsBrowser.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token).ConfigureAwait(false);
+
                             var buffer = new byte[4096];
-                            var res = await wsBrowser.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                            var res = await wsBrowser.ReceiveAsync(new ArraySegment<byte>(buffer), token).ConfigureAwait(false);
                             string responseJson = Encoding.UTF8.GetString(buffer, 0, res.Count);
-                            
+
                             using var docResp = JsonDocument.Parse(responseJson);
                             if (docResp.RootElement.TryGetProperty("result", out var resEl) && resEl.TryGetProperty("targetId", out var tidEl))
                             {
@@ -185,8 +192,8 @@ namespace iikoServiceHelper.Services
                     // Если не вышло (или старый метод), пробуем стандартный /json/new (активная вкладка)
                     if (string.IsNullOrEmpty(tabId))
                     {
-                        var response = await http.PutAsync("http://127.0.0.1:9222/json/new?http://crm.iiko.ru/", null, token);
-                        string json = await response.Content.ReadAsStringAsync();
+                        var response = await http.PutAsync($"http://127.0.0.1:{AppConstants.ChromeDebugPort}/json/new?http://crm.iiko.ru/", null, token).ConfigureAwait(false);
+                        string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                         using var doc = JsonDocument.Parse(json);
                         if (doc.RootElement.TryGetProperty("id", out var idEl)) tabId = idEl.GetString() ?? "";
                         if (doc.RootElement.TryGetProperty("webSocketDebuggerUrl", out var wsEl)) wsUrl = wsEl.GetString() ?? "";
@@ -195,7 +202,7 @@ namespace iikoServiceHelper.Services
                     // Если создали через Browser Target, нужно найти WS URL вкладки
                     if (!string.IsNullOrEmpty(tabId) && string.IsNullOrEmpty(wsUrl))
                     {
-                        string jsonTargets = await http.GetStringAsync("http://127.0.0.1:9222/json", token);
+                        string jsonTargets = await http.GetStringAsync($"http://127.0.0.1:{AppConstants.ChromeDebugPort}/json", token).ConfigureAwait(false);
                         using var docTargets = JsonDocument.Parse(jsonTargets);
                         foreach (var el in docTargets.RootElement.EnumerateArray())
                         {
@@ -227,7 +234,7 @@ namespace iikoServiceHelper.Services
                 // 3. Подключение WebSocket
                 LogMessage?.Invoke($"Connecting WebSocket...");
                 using var ws = new ClientWebSocket();
-                await ws.ConnectAsync(new Uri(wsUrl), token);
+                await ws.ConnectAsync(new Uri(wsUrl), token).ConfigureAwait(false);
                 LogMessage?.Invoke("WebSocket connected.");
 
                 // Локальная функция для выполнения JS
@@ -243,7 +250,7 @@ namespace iikoServiceHelper.Services
                             @params = new { expression = js, returnByValue = true }
                         };
                         var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cmd));
-                        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+                        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token).ConfigureAwait(false);
 
                         var buffer = new byte[8192];
                         var sb = new StringBuilder();
@@ -251,7 +258,7 @@ namespace iikoServiceHelper.Services
 
                         while ((DateTime.Now - start).TotalSeconds < 5 && ws.State == WebSocketState.Open)
                         {
-                            var res = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                            var res = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), token).ConfigureAwait(false);
                             sb.Append(Encoding.UTF8.GetString(buffer, 0, res.Count));
                             if (res.EndOfMessage)
                             {
@@ -274,12 +281,12 @@ namespace iikoServiceHelper.Services
 
                 // 4. Ожидание загрузки
                 LogMessage?.Invoke("Waiting for page load (3s)...");
-                await Task.Delay(3000, token);
+                await Task.Delay(3000, token).ConfigureAwait(false);
 
                 // 5. Проверка статуса входа
                 LogMessage?.Invoke("Checking login status...");
                 string checkJs = "document.querySelector('a[href*=\"action=Logout\"]') !== null";
-                string resp = await Eval(checkJs);
+                string resp = await Eval(checkJs).ConfigureAwait(false);
 
                 if (resp.Contains("\"value\":true"))
                 {
@@ -295,20 +302,20 @@ namespace iikoServiceHelper.Services
                     LogMessage?.Invoke($"Filling form. Login: {_login}");
                     string fillJs = $"var u = document.querySelector('input[name=\"user_name\"]'); if(u) u.value = '{_login}'; " +
                                     $"var p = document.querySelector('input[name=\"user_password\"]'); if(p) p.value = '{_password}';";
-                    await Eval(fillJs);
+                    await Eval(fillJs).ConfigureAwait(false);
 
                     // Нажатие кнопки
                     LogMessage?.Invoke("Clicking Login button...");
                     string clickJs = "var btn = document.querySelector('input[name=\"Login\"]'); if(btn) btn.click();";
-                    await Eval(clickJs);
+                    await Eval(clickJs).ConfigureAwait(false);
 
                     // Ожидание
                     LogMessage?.Invoke("Waiting for login (5s)...");
-                    await Task.Delay(5000, token);
+                    await Task.Delay(5000, token).ConfigureAwait(false);
 
                     // Повторная проверка
                     LogMessage?.Invoke("Checking login status again...");
-                    resp = await Eval(checkJs);
+                    resp = await Eval(checkJs).ConfigureAwait(false);
                     if (resp.Contains("\"value\":true"))
                     {
                         LogMessage?.Invoke("Авто-вход выполнен успешно.");
@@ -327,7 +334,7 @@ namespace iikoServiceHelper.Services
                 LogMessage?.Invoke($"Closing tab {tabId}...");
                 try
                 {
-                    await http.GetStringAsync($"http://127.0.0.1:9222/json/close/{tabId}", token);
+                    await http.GetStringAsync($"http://127.0.0.1:{AppConstants.ChromeDebugPort}/json/close/{tabId}", token).ConfigureAwait(false);
                     LogMessage?.Invoke("Tab closed.");
                 }
                 catch (Exception ex)
@@ -351,7 +358,7 @@ namespace iikoServiceHelper.Services
         public void Dispose()
         {
             Stop();
-            _crmTimer.Tick -= CrmTimer_Tick;
+            _crmTimer.Tick -= OnTimerTickAsync;
         }
     }
 }

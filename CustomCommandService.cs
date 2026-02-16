@@ -45,7 +45,7 @@ namespace iikoServiceHelper.Services
                 {
                     throw new InvalidOperationException("Too many commands to save, exceeds maximum limit");
                 }
-                
+
                 File.WriteAllText(_filePath, JsonSerializer.Serialize(commands, new JsonSerializerOptions { WriteIndented = true }));
             }
             catch (Exception ex)
@@ -57,5 +57,14 @@ namespace iikoServiceHelper.Services
         }
 
         public string GetFilePath() => _filePath;
+
+        public void ResetToDefaults()
+        {
+            try
+            {
+                if (File.Exists(_filePath)) File.Delete(_filePath);
+            }
+            catch { }
+        }
     }
 }

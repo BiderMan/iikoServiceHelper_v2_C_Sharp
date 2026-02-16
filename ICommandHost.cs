@@ -21,5 +21,6 @@ namespace iikoServiceHelper.Services
         // Input
         void SendKeysWait(string keys);
         Task CleanClipboardHistoryAsync(int items);
+        Task ClearClipboardHistoryByTimeRangeAsync(DateTime startTime, DateTime endTime);
     }
 }

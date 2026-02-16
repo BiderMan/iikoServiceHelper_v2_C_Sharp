@@ -2,6 +2,7 @@ using System;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
+using iikoServiceHelper.Constants;
 
 namespace iikoServiceHelper.Models
 {
@@ -40,6 +41,7 @@ namespace iikoServiceHelper.Models
         }
         
         public bool UsePasteModeForQuickReplies { get; set; } = false;
+        public string LastCommandsVersion { get; set; } = "";
 
         private static string EncryptPassword(string password)
         {

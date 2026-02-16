@@ -31,3 +31,8 @@ out/
 # Executables (обычно не хранят в git, если это не релиз)
 *.exe
 *.dll
+
+# Test results
+**/TestResults/
+**/coverage-report/
+**/*.coverage

@@ -35,6 +35,11 @@ namespace iikoServiceHelper.Services
             resources["BrushToolTipForeground"] = ParseBrush(theme.ToolTipForeground);
             resources["BrushCheckBoxCheckMark"] = ParseBrush(theme.CheckBoxCheckMark);
             resources["BrushLogForeground"] = ParseBrush(theme.LogForeground);
+            
+            // Фон списка команд DataGrid
+            resources["BrushDataGridBackground"] = ParseBrush(theme.DataGridBackground);
+            resources["BrushDataGridAlternateBackground"] = ParseBrush(theme.DataGridAlternateBackground);
+            resources["BrushDataGridGridLines"] = ParseBrush(theme.DataGridGridLines);
         }
 
         private static Brush ParseBrush(string colorString)

@@ -6,7 +6,7 @@
 ## Требования
 
 - Windows 10/11
-- .NET SDK 6.0 (или новее)
+- .NET SDK 8.0 (или новее)
 
 ## Разработка в VS Code
 
@@ -23,12 +23,12 @@
    ```
 
 ### 2. Compact (Компактная)
-Размер: **~3-5 МБ**. Требует установленного **.NET Desktop Runtime 6.0**.
+Размер: **~3-5 МБ**. Требует установленного **.NET Desktop Runtime 8.0**.
 *(Внимание: .NET Framework 4.8 не подходит)*
 
-[Скачать .NET Desktop Runtime 6.0](https://dotnet.microsoft.com/en-us/download/dotnet/6.0)
+[Скачать .NET Desktop Runtime 6.0](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 
-**Авто-проверка:** Если у пользователя нет .NET 6, программа сама покажет окно с предложением скачать его.
+**Авто-проверка:** Если у пользователя нет .NET 8, программа сама покажет окно с предложением скачать его.
 
    ```powershell
    dotnet publish iikoServiceHelper.csproj -c Release -p:SelfContained=false
@@ -51,6 +51,40 @@
 
 Настройки и заметки хранятся в:
 `%LOCALAPPDATA%\iikoServiceHelper\`
+
+## Тестирование
+
+Проект содержит юнит-тесты в папке `Tests/iikoServiceHelper.Tests`.
+
+### Запуск всех тестов
+
+```powershell
+dotnet test
+```
+
+### Запуск тестов с фильтром
+
+# Запуск всех тестов 
+
+dotnet test Tests/iikoServiceHelper.Tests/iikoServiceHelper.Tests.csproj
+
+
+```powershell
+# Только тесты HotkeyManager
+dotnet test --filter "FullyQualifiedName~HotkeyManager"
+
+# Только тесты CrmAutoLoginService
+dotnet test --filter "FullyQualifiedName~CrmAutoLoginService"
+```
+
+### Структура тестов
+
+- `Services/HotkeyManagerTests.cs` - Тесты менеджера горячих клавиш
+- `Services/CrmAutoLoginServiceTests.cs` - Тесты CRM авто-входа
+- `Services/CommandExecutionServiceTests.cs` - Тесты выполнения команд
+- `Services/CustomCommandServiceTests.cs` - Тесты пользовательских команд
+- `Models/AppSettingsTests.cs` - Тесты настроек приложения
+- `Utils/StringUtilsTests.cs` - Тесты утилит
 
 ## Функционал
 

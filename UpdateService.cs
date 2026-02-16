@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -17,7 +18,7 @@ namespace iikoServiceHelper.Services
         private readonly Func<string, string, bool> _showUpdateDialog;
         private readonly Action<string, string, bool> _showCustomMessage;
 
-        private const string GitHubToken = "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";
+        private const string GitHubToken = "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";
         public UpdateService(Func<string, string, bool> showUpdateDialog, Action<string, string, bool> showCustomMessage)
         {
             _showUpdateDialog = showUpdateDialog;
@@ -28,6 +29,9 @@ namespace iikoServiceHelper.Services
         {
             try
             {
+                // Включаем поддержку TLS 1.2 для GitHub API
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
+                
                 if (isSilent && (DateTime.Now - lastUpdateCheck).TotalHours < 24)
                 {
                     return;
@@ -37,7 +41,8 @@ namespace iikoServiceHelper.Services
                 if (currentVersion == null) return;
 
                 using var client = new HttpClient();
-                client.DefaultRequestHeaders.UserAgent.ParseAdd("iikoServiceHelper");
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("iikoServiceHelper/1.0");
+                client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github.v3+json");
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", GitHubToken);
                 var json = await client.GetStringAsync("https://api.github.com/repos/BiderMan/iikoServiceHelper_v2_C_Sharp/releases/latest");
 
@@ -96,11 +101,31 @@ namespace iikoServiceHelper.Services
             }
             catch (Exception ex)
             {
-                var errorMessage = $"Ошибка при проверке обновлений: {ex.Message}";
-                Debug.WriteLine($"[UpdateService] {errorMessage}");
+                string errorMessage;
+                string errorTitle = "Ошибка сети";
+                
+                // Определяем тип ошибки для более понятного сообщения
+                if (ex.Message.Contains("SSL") || ex.Message.Contains("ssl"))
+                {
+                    errorMessage = "Не удалось установить защищённое соединение.\n\nВозможные причины:\n• Нет подключения к интернету\n• Блокировка антивирусом или firewall\n• Проблемы с SSL-сертификатами\n\nПроверьте подключение к интернету и повторите попытку.";
+                }
+                else if (ex.Message.Contains("404") || ex.Message.Contains("Not Found"))
+                {
+                    errorMessage = "Не удалось найти сервер обновлений.\nПопробуйте позже.";
+                }
+                else if (ex.Message.Contains("timeout") || ex.Message.Contains("Timeout"))
+                {
+                    errorMessage = "Время ожидания ответа истекло.\nПроверьте подключение к интернету.";
+                }
+                else
+                {
+                    errorMessage = $"Произошла ошибка при проверке обновлений: {ex.Message}";
+                }
+                
+                Debug.WriteLine($"[UpdateService] {errorTitle}: {ex.Message}");
                 if (!isSilent)
                 {
-                    UpdateFailed?.Invoke("Ошибка сети", errorMessage);
+                    UpdateFailed?.Invoke(errorTitle, errorMessage);
                 }
             }
         }

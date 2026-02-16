@@ -7,7 +7,7 @@ namespace iikoServiceHelper.Services
 {
     public class AltBlockerService : IDisposable
     {
-        private readonly HotkeyManager? _hotkeyManager;
+        private readonly IHotkeyManager? _hotkeyManager;
         private readonly Action<string> _logAction;
 
         private IntPtr _hookId = IntPtr.Zero;
@@ -15,7 +15,7 @@ namespace iikoServiceHelper.Services
         private bool _isAltDown = false;
         private bool _otherKeyDuringAlt = false;
 
-        public AltBlockerService(HotkeyManager? hotkeyManager, Action<string> logAction)
+        public AltBlockerService(IHotkeyManager? hotkeyManager, Action<string> logAction)
         {
             _hotkeyManager = hotkeyManager;
             _logAction = logAction;

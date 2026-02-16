@@ -9,14 +9,14 @@ namespace iikoServiceHelper.Utils
             {
                 return keyCombo;
             }
-            
+
             // Ограничиваем длину строки для предотвращения атак переполнением
             if (keyCombo.Length > 100)
             {
                 System.ArgumentException ex = new System.ArgumentException("Key combo string exceeds maximum allowed length", nameof(keyCombo));
                 throw ex;
             }
-            
+
             var result = keyCombo;
             result = result.Replace("NumPad", "Num ");
             result = result.Replace("D0", "0").Replace("D1", "1").Replace("D2", "2").Replace("D3", "3")
@@ -24,6 +24,37 @@ namespace iikoServiceHelper.Utils
                           .Replace("D8", "8").Replace("D9", "9");
             result = result.Replace("Multiply", "Num*").Replace("Add", "Num+").Replace("Divide", "Num/");
             return result;
+        }
+
+        public static string? ConvertLayout(string? input)
+        {
+            if (string.IsNullOrEmpty(input)) return input;
+
+            var result = new System.Text.StringBuilder(input.Length);
+            var en = "qwertyuiop[]asdfghjkl;'zxcvbnm,.QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>";
+            var ru = "йцукенгшщзхъфывапролджэячсмитьбюЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ";
+
+            foreach (var c in input)
+            {
+                var index = en.IndexOf(c);
+                if (index >= 0)
+                {
+                    result.Append(ru[index]);
+                }
+                else
+                {
+                    var indexRu = ru.IndexOf(c);
+                    if (indexRu >= 0)
+                    {
+                        result.Append(en[indexRu]);
+                    }
+                    else
+                    {
+                        result.Append(c);
+                    }
+                }
+            }
+            return result.ToString();
         }
     }
 }

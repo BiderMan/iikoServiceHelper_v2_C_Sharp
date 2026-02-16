@@ -9,7 +9,7 @@
     <Authors>Yustus</Authors>
     <Company>Yustus</Company>
     <Product>iikoServiceHelper_v2</Product>
-    <Version>2.5.0</Version>
+    <Version>2.6.0</Version>
     <AssemblyName Condition="'$(Configuration)' == 'Release'">iikoServiceHelper_v$(Version)</AssemblyName>
     <RuntimeIdentifier Condition="'$(Configuration)' == 'Release'">win-x64</RuntimeIdentifier>
     <PublishSingleFile Condition="'$(Configuration)' == 'Release'">true</PublishSingleFile>
@@ -24,10 +24,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(SelfContained)' == 'false' And '$(Configuration)' == 'Release'">
@@ -42,5 +44,11 @@
     <!-- Создаем релиз и загружаем файл. IgnoreExitCode="true" позволяет не ломать сборку, если релиз с таким тегом уже существует -->
     <Exec Command="gh release create &quot;$(Version)&quot; &quot;$(PublishDir)$(AssemblyName).exe&quot; --title &quot;$(Product) $(Version)&quot; --target main --generate-notes" IgnoreExitCode="true" />
   </Target>
+
+  <ItemGroup>
+    <Compile Remove="Tests\**" />
+    <EmbeddedResource Remove="Tests\**" />
+    <None Remove="Tests\**" />
+  </ItemGroup>
 
 </Project>

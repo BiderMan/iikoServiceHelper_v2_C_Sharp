@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using iikoServiceHelper.Models;
 using iikoServiceHelper.Services;
+using iikoServiceHelper.ViewModels;
 
 namespace iikoServiceHelper
 {
@@ -62,7 +63,15 @@ namespace iikoServiceHelper
             AppSettings settings = new AppSettings();
             if (File.Exists(settingsPath))
             {
-                try { settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(settingsPath)) ?? new AppSettings(); } catch { }
+                try 
+                { 
+                    settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(settingsPath)) ?? new AppSettings(); 
+                } 
+                catch (Exception ex) 
+                { 
+                    Debug.WriteLine($"Failed to deserialize settings: {ex.Message}");
+                    // Используем настройки по умолчанию при ошибке десериализации
+                }
             }
             services.AddSingleton(settings);
 
@@ -70,10 +79,25 @@ namespace iikoServiceHelper
             services.AddLogging(configure => configure.AddConsole().SetMinimumLevel(LogLevel.Debug));
 
             // Services
-            services.AddSingleton<HotkeyManager>();
+            services.AddSingleton<IHotkeyManager, HotkeyManager>();
             services.AddSingleton<ICommandExecutionService, CommandExecutionService>();
+            services.AddSingleton<CrmAutoLoginService>();
             services.AddSingleton(new CustomCommandService(appDataPath));
             services.AddTransient<UpdateService>(); // Assuming UpdateService is stateless or transient
+            
+            // Новые сервисы (Этап 2)
+            services.AddSingleton<FileService>();
+            services.AddSingleton<DownloadService>();
+            services.AddSingleton<LauncherService>();
+
+            // ViewModels
+            services.AddSingleton<MainWindowViewModel>();
+            services.AddSingleton<CrmViewModel>();
+            services.AddSingleton<MacrosViewModel>();
+            services.AddSingleton<ToolsViewModel>();
+            services.AddSingleton<SettingsViewModel>();
+            services.AddSingleton<NotesViewModel>();
+
             services.AddSingleton<MainWindow>();
         }
     }

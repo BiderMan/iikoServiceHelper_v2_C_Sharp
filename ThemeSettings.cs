@@ -32,7 +32,10 @@ namespace iikoServiceHelper.Models
                 TabHover = "White",
                 ToolTipForeground = "White",
                 CheckBoxCheckMark = "#B026FF",
-                LogForeground = "#AAAAAA"
+                LogForeground = "#AAAAAA",
+                DataGridBackground = "#150020,#1A0029",
+                DataGridAlternateBackground = "#150020",
+                DataGridGridLines = "#333333"
             };
 
             LightTheme = new ThemeColorSet
@@ -56,7 +59,10 @@ namespace iikoServiceHelper.Models
                 TabHover = "#404040",
                 ToolTipForeground = "#404040",
                 CheckBoxCheckMark = "#EEEEEE",
-                LogForeground = "#404040"
+                LogForeground = "#404040",
+                DataGridBackground = "#F5F5F5,#EBEBEB",
+                DataGridAlternateBackground = "#EBEBEB",
+                DataGridGridLines = "#888888"
             };
         }
     }
@@ -121,5 +127,14 @@ namespace iikoServiceHelper.Models
         
         public string _Desc_LogForeground { get; set; } = "Цвет текста лога";
         public string LogForeground { get; set; } = "";
+        
+        public string _Desc_DataGridBackground { get; set; } = "Фон списка команд (градиент)";
+        public string DataGridBackground { get; set; } = "";
+        
+        public string _Desc_DataGridAlternateBackground { get; set; } = "Фон чётных строк списка команд";
+        public string DataGridAlternateBackground { get; set; } = "";
+        
+        public string _Desc_DataGridGridLines { get; set; } = "Цвет линий сетки списка команд";
+        public string DataGridGridLines { get; set; } = "";
     }
 }
