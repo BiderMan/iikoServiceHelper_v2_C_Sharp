@@ -5,6 +5,8 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using iikoServiceHelper.Services;
 
 namespace iikoServiceHelper.Services
 {
@@ -17,40 +19,58 @@ namespace iikoServiceHelper.Services
 
         private readonly Func<string, string, bool> _showUpdateDialog;
         private readonly Action<string, string, bool> _showCustomMessage;
+        private readonly ILogger<UpdateService>? _logger;
+        private readonly FileService? _fileService;
 
         private const string GitHubToken = "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";
-        public UpdateService(Func<string, string, bool> showUpdateDialog, Action<string, string, bool> showCustomMessage)
+        public UpdateService(Func<string, string, bool> showUpdateDialog, Action<string, string, bool> showCustomMessage, ILogger<UpdateService>? logger = null, FileService? fileService = null)
         {
             _showUpdateDialog = showUpdateDialog;
             _showCustomMessage = showCustomMessage;
+            _logger = logger;
+            _fileService = fileService;
         }
 
         public async Task CheckForUpdates(bool isSilent, DateTime lastUpdateCheck, Action<DateTime> updateLastCheckTime)
         {
             try
             {
+                _logger?.LogInformation("Начало проверки обновлений. Silent: {IsSilent}, LastCheck: {LastCheck}", isSilent, lastUpdateCheck);
+                _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] Начало проверки обновлений. Silent: {isSilent}, LastCheck: {lastUpdateCheck}");
+                
                 // Включаем поддержку TLS 1.2 для GitHub API
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
                 
                 if (isSilent && (DateTime.Now - lastUpdateCheck).TotalHours < 24)
                 {
+                    _logger?.LogDebug("Проверка обновлений пропущена (тихий режим, прошло менее 24ч)");
                     return;
                 }
 
                 var currentVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-                if (currentVersion == null) return;
+                if (currentVersion == null) {
+                    _logger?.LogWarning("Не удалось получить версию текущей сборки");
+                    _fileService?.WriteDetailedLog("[ОБНОВЛЕНИЕ] Не удалось получить версию текущей сборки");
+                    return;
+                }
+
+                _logger?.LogInformation("Текущая версия: {CurrentVersion}, запрашиваю информацию о последнем релизе...", currentVersion);
+                _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] Текущая версия: {currentVersion}, запрашиваю информацию о последнем релизе...");
 
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("iikoServiceHelper/1.0");
                 client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github.v3+json");
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", GitHubToken);
                 var json = await client.GetStringAsync("https://api.github.com/repos/BiderMan/iikoServiceHelper_v2_C_Sharp/releases/latest");
+                _logger?.LogDebug("Получен ответ от GitHub API, парсинг...");
 
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
                 string tagName = root.GetProperty("tag_name").GetString() ?? "0.0.0";
                 string versionStr = tagName.TrimStart('v');
+                _logger?.LogInformation("Доступная версия на GitHub: {RemoteVersion}", versionStr);
+                _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] Доступная версия на GitHub: {versionStr}");
 
                 if (Version.TryParse(versionStr, out var remoteVersion))
                 {
@@ -85,7 +105,7 @@ namespace iikoServiceHelper.Services
 
                             if (!string.IsNullOrEmpty(downloadUrl))
                             {
-                                await PerformUpdate(downloadUrl, tagName);
+                                await PerformUpdate(downloadUrl, tagName, GitHubToken);
                             }
                             else
                             {
@@ -122,6 +142,8 @@ namespace iikoServiceHelper.Services
                     errorMessage = $"Произошла ошибка при проверке обновлений: {ex.Message}";
                 }
                 
+                _logger?.LogError(ex, "Ошибка при проверке обновлений. Title: {ErrorTitle}, Message: {ErrorMessage}", errorTitle, errorMessage);
+                _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] ОШИБКА: {errorTitle} - {ex.Message}");
                 Debug.WriteLine($"[UpdateService] {errorTitle}: {ex.Message}");
                 if (!isSilent)
                 {
@@ -130,22 +152,36 @@ namespace iikoServiceHelper.Services
             }
         }
 
-        private async Task PerformUpdate(string url, string version)
+        private async Task PerformUpdate(string url, string version, string? githubToken = null)
         {
             try
             {
+                _logger?.LogInformation("Начало скачивания обновления версии {Version}", version);
+                _logger?.LogDebug("URL для скачивания: {Url}", url);
+
                 string currentDir = AppDomain.CurrentDomain.BaseDirectory;
                 string newFileName = $"iikoServiceHelper_v{version}.exe";
                 string savePath = Path.Combine(currentDir, newFileName);
+                _logger?.LogDebug("Путь сохранения: {SavePath}", savePath);
+                _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] Начало скачивания версии {version}. Путь: {savePath}");
 
                 StatusChanged?.Invoke("Скачивание...");
 
                 using var client = new HttpClient();
+                if (!string.IsNullOrEmpty(githubToken))
+                {
+                    _logger?.LogDebug("Добавлен токен авторизации для скачивания");
+                    client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", githubToken);
+                }
                 using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                _logger?.LogDebug("Статус ответа: {StatusCode}", response.StatusCode);
+                _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] Статус ответа: {response.StatusCode}");
                 response.EnsureSuccessStatusCode();
 
                 var totalBytes = response.Content.Headers.ContentLength ?? -1L;
                 var canReportProgress = totalBytes != -1;
+                _logger?.LogInformation("Размер файла: {TotalBytes} байт", totalBytes);
+                _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] Размер файла: {totalBytes} байт");
 
                 using var stream = await response.Content.ReadAsStreamAsync();
                 using var fileStream = new FileStream(savePath, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -160,6 +196,9 @@ namespace iikoServiceHelper.Services
                     totalRead += bytesRead;
                     if (canReportProgress) ProgressChanged?.Invoke((double)totalRead / totalBytes * 100);
                 }
+
+                _logger?.LogInformation("Скачивание завершено. Загружено: {TotalRead} байт", totalRead);
+                _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] Скачивание завершено. Загружено: {totalRead} байт");
 
                 // Проверка целостности файла (простая проверка - файл не пустой)
                 if (new FileInfo(savePath).Length == 0)

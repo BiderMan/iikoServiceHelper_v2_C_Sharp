@@ -245,16 +245,16 @@
                              <ColumnDefinition Width="Auto"/>
                          </Grid.ColumnDefinitions>
                          <StackPanel Grid.Column="0">
-                             <Button Content="OrderCheck" Click="OpenOrderCheck_Click" HorizontalAlignment="Left" Width="250" Margin="0,0,0,5"/>
-                             <Button Content="CLEAR.bat" Click="OpenClearBat_Click" HorizontalAlignment="Left" Width="250" Margin="0"/>
+                             <Button Content="OrderCheck" Command="{Binding ToolsViewModel.OpenOrderCheckCommand}" HorizontalAlignment="Left" Width="250" Margin="0,0,0,5"/>
+                             <Button Content="CLEAR.bat" Command="{Binding ToolsViewModel.OpenClearBatCommand}" HorizontalAlignment="Left" Width="250" Margin="0"/>
                          </StackPanel>
                          <StackPanel Grid.Column="1" HorizontalAlignment="Center">
-                             <Button Content="POS-ник M1" Click="BtnCopyPosM1_Click" Width="150" Margin="0,0,0,5"/>
-                             <Button Content="POS-ник M" Click="BtnCopyPosM_Click" Width="150" Margin="0"/>
+                             <Button Content="POS-ник M1" Command="{Binding ToolsViewModel.CopyPosM1LinkCommand}" Width="150" Margin="0,0,0,5"/>
+                             <Button Content="POS-ник M" Command="{Binding ToolsViewModel.CopyPosLinkCommand}" Width="150" Margin="0"/>
                          </StackPanel>
                          <StackPanel Grid.Column="2">
-                             <Button Content="FTP" Click="OpenFtp_Click" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть \\files.resto.lan\" HorizontalAlignment="Right" Margin="0,0,0,5"/>
-                             <Button Content="Открыть лог Helpera" Click="OpenLogFolder_Click" HorizontalAlignment="Right" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть папку с логами" Margin="0"/>
+                             <Button Content="FTP" Command="{Binding ToolsViewModel.OpenFtpCommand}" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть \\files.resto.lan\" HorizontalAlignment="Right" Margin="0,0,0,5"/>
+                             <Button Content="Открыть лог Helpera" Command="{Binding ToolsViewModel.OpenLogFolderCommand}" HorizontalAlignment="Right" Width="250" Height="20" FontSize="14" Padding="0" ToolTip="Открыть папку с логами" Margin="0"/>
                          </StackPanel>
                      </Grid>
 

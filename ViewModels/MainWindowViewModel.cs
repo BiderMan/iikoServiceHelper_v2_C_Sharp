@@ -30,16 +30,19 @@ namespace iikoServiceHelper.ViewModels
         public NotesViewModel NotesViewModel { get; }
         public CrmViewModel CrmViewModel { get; }
         public SettingsViewModel SettingsViewModel { get; }
+        public ToolsViewModel ToolsViewModel { get; }
 
         public MainWindowViewModel(
             NotesViewModel notesViewModel,
             CrmViewModel crmViewModel,
             SettingsViewModel settingsViewModel,
+            ToolsViewModel toolsViewModel,
             IHotkeyManager? hotkeyManager = null)
         {
             NotesViewModel = notesViewModel;
             CrmViewModel = crmViewModel;
             SettingsViewModel = settingsViewModel;
+            ToolsViewModel = toolsViewModel;
             _hotkeyManager = hotkeyManager;
         }
 

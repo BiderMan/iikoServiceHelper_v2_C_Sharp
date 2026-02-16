@@ -25,6 +25,7 @@ using System.Text.Encodings.Web;
 using System.Text.Unicode;
 using System.Windows.Media;
 using iikoServiceHelper.ViewModels;
+using Microsoft.Extensions.Logging;
 
 namespace iikoServiceHelper
 {
@@ -77,7 +78,8 @@ namespace iikoServiceHelper
             CrmAutoLoginService crmAutoLoginService,
             FileService fileService,
             DownloadService downloadService,
-            LauncherService launcherService)
+            LauncherService launcherService,
+            ILogger<UpdateService>? updateServiceLogger)
         {
             InitializeComponent();
             _viewModel = viewModel;
@@ -104,7 +106,13 @@ namespace iikoServiceHelper
             _commandExecutionService = commandExecutionService;
             _commandExecutionService.SetHost(this);
 
-            _updateService = new UpdateService(ShowUpdateDialog, ShowCustomMessage);
+            _updateService = new UpdateService(ShowUpdateDialog, ShowCustomMessage, updateServiceLogger, _fileService);
+
+            // Инициализация ToolsViewModel
+            _viewModel.ToolsViewModel.AppDir = AppDir;
+            _viewModel.ToolsViewModel.ShowMessageRequested += OnToolsShowMessage;
+            _viewModel.ToolsViewModel.NotificationRequested += OnToolsNotification;
+            _viewModel.ToolsViewModel.ButtonStateChanged += OnToolsButtonStateChanged;
             
             // Подписка на события UpdateService для отображения прогресса и ошибок
             _updateService.StatusChanged += status => Dispatcher.Invoke(() => {
@@ -443,16 +451,36 @@ namespace iikoServiceHelper
         }
         #endregion
 
-        private async void OpenOrderCheck_Click(object sender, RoutedEventArgs e) { string exePath = Path.Combine(AppDir, "OrderCheck.exe"); if (File.Exists(exePath)) { try { Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true }); } catch (Exception ex) { MessageBox.Show($"Ошибка: {ex.Message}"); } } else { if (sender is Button btn) { btn.IsEnabled = false; btn.Content = "СКАЧИВАНИЕ..."; } try { using var client = new HttpClient(); var bytes = await client.GetByteArrayAsync("https://clearbat.iiko.online/downloads/OrderCheck.exe"); await File.WriteAllBytesAsync(exePath, bytes); Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true }); } catch (Exception ex) { MessageBox.Show($"Ошибка: {ex.Message}"); } finally { if (sender is Button btnEnd) { btnEnd.IsEnabled = true; btnEnd.Content = "ORDERCHECK"; } } } }
-        private async void OpenClearBat_Click(object sender, RoutedEventArgs e) { string exePath = Path.Combine(AppDir, "CLEAR.bat.exe"); if (File.Exists(exePath)) { try { Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true }); } catch (Exception ex) { MessageBox.Show($"Ошибка: {ex.Message}"); } } else { if (sender is Button btn) { btn.IsEnabled = false; btn.Content = "СКАЧИВАНИЕ..."; } try { using var client = new HttpClient(); var bytes = await client.GetByteArrayAsync("https://clearbat.iiko.online/downloads/CLEAR.bat.exe"); await File.WriteAllBytesAsync(exePath, bytes); Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true }); } catch (Exception ex) { MessageBox.Show($"Ошибка: {ex.Message}"); } finally { if (sender is Button btnEnd) { btnEnd.IsEnabled = true; btnEnd.Content = "CLEAR.bat"; } } } }
 
         [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
         private void MoveExplorerTo(int x, int y) { Task.Run(async () => { try { IntPtr hWnd = IntPtr.Zero; for (int i = 0; i < 10; i++) { await Task.Delay(200); IntPtr fg = GetForegroundWindow(); GetWindowThreadProcessId(fg, out uint pid); try { var p = Process.GetProcessById((int)pid); if (p.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase)) { hWnd = fg; break; } } catch { } } if (hWnd != IntPtr.Zero) SetWindowPos(hWnd, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004); } catch { } }); }
-        private void OpenFtp_Click(object sender, RoutedEventArgs e) { string path = @"\\files.resto.lan\"; string user = _viewModel.CrmViewModel.CrmLogin; string pass = _viewModel.CrmViewModel.CrmPassword; if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass)) { MessageBox.Show("Для доступа к FTP заполните Логин и Пароль от CRM."); return; } int targetX = (int)this.Left + 30, targetY = (int)this.Top + 30; if (this.WindowState == WindowState.Maximized) { targetX = 50; targetY = 50; } Task.Run(() => { try { var pDel = Process.Start(new ProcessStartInfo("net", @"use \\files.resto.lan /delete /y") { CreateNoWindow = true, UseShellExecute = false }); pDel?.WaitForExit(); var pUse = Process.Start(new ProcessStartInfo("net", $@"use \\files.resto.lan /user:{user} {pass} /persistent:yes") { CreateNoWindow = true, UseShellExecute = false }); pUse?.WaitForExit(); Process.Start(new ProcessStartInfo("explorer.exe", path) { UseShellExecute = true }); MoveExplorerTo(targetX, targetY); } catch (Exception ex) { Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Ошибка: {ex.Message}")); } }); }
         private bool ShowUpdateDialog(string newVersion, string currentVersion) { bool result = false; Dispatcher.Invoke(() => { var win = new Window { Title = "Доступно обновление", Width = 400, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this, ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, ShowInTaskbar = false }; Style? btnStyle = null; try { btnStyle = (Style)this.FindResource(typeof(Button)); } catch { } var border = new Border { Background = (Brush)FindResource("BrushBackground"), BorderBrush = (Brush)FindResource("BrushAccent"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(20), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 20, ShadowDepth = 0, Opacity = 0.5, Color = (Color)FindResource("ColorAccent") } }; var stack = new StackPanel(); stack.Children.Add(new TextBlock { Text = "🚀 ОБНОВЛЕНИЕ", FontSize = 20, FontWeight = FontWeights.Bold, Foreground = (Brush)FindResource("BrushAccent"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 15) }); stack.Children.Add(new TextBlock { Text = $"Доступна новая версия: {newVersion}\n(Текущая: {currentVersion})", TextWrapping = TextWrapping.Wrap, FontSize = 15, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 0, 0, 10), Foreground = (Brush)FindResource("BrushForeground") }); stack.Children.Add(new TextBlock { Text = "Скачать и установить?", FontSize = 14, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 0, 0, 25), Foreground = (Brush)FindResource("BrushForeground") }); var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center }; var btnYes = new Button { Content = "СКАЧАТЬ", Width = 120, Margin = new Thickness(0, 0, 15, 0), Style = btnStyle }; btnYes.Click += (s, e) => { win.DialogResult = true; win.Close(); }; var btnNo = new Button { Content = "ОТМЕНА", Width = 120, Style = btnStyle, BorderBrush = Brushes.Gray, Foreground = Brushes.Gray }; btnNo.Click += (s, e) => { win.DialogResult = false; win.Close(); }; btnPanel.Children.Add(btnYes); btnPanel.Children.Add(btnNo); stack.Children.Add(btnPanel); border.Child = stack; win.Content = border; result = win.ShowDialog() == true; }); return result; }
         private void ShowCustomMessage(string title, string message, bool isError) { Dispatcher.Invoke(() => { var win = new Window { Title = title, Width = 350, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this, ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, ShowInTaskbar = false }; Style? btnStyle = null; try { btnStyle = (Style)this.FindResource(typeof(Button)); } catch { } var border = new Border { Background = (Brush)FindResource("BrushBackground"), BorderBrush = (Brush)FindResource("BrushAccent"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(20), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 20, ShadowDepth = 0, Opacity = 0.5, Color = (Color)FindResource("ColorAccent") } }; var stack = new StackPanel(); stack.Children.Add(new TextBlock { Text = isError ? "❌ ОШИБКА" : "✅ ИНФО", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = isError ? Brushes.IndianRed : Brushes.LightGreen, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 15) }); stack.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, FontSize = 14, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 0, 0, 20), Foreground = (Brush)FindResource("BrushForeground") }); var btnOk = new Button { Content = "OK", Width = 100, HorizontalAlignment = HorizontalAlignment.Center, Style = btnStyle }; btnOk.Click += (s, e) => win.Close(); stack.Children.Add(btnOk); border.Child = stack; win.Content = border; win.ShowDialog(); }); }
+
+        // Обработчики событий ToolsViewModel
+        private void OnToolsShowMessage(string title, string message, bool isError) => ShowCustomMessage(title, message, isError);
+        private void OnToolsNotification(string message) => ShowTempNotification(message);
+        private void OnToolsButtonStateChanged(string content, bool isEnabled)
+        {
+            // Для OrderCheck и CLEAR.bat меняем состояние кнопок
+            Dispatcher.Invoke(() =>
+            {
+                if (content == "СКАЧИВАНИЕ...")
+                {
+                    // Кнопка в процессе скачивания - отключаем её
+                }
+                else if (content == "ORDERCHECK")
+                {
+                    if (FindName("BtnOrderCheck") is System.Windows.Controls.Button btn) { btn.IsEnabled = true; btn.Content = "OrderCheck"; }
+                }
+                else if (content == "CLEAR.bat")
+                {
+                    if (FindName("BtnClearBat") is System.Windows.Controls.Button btn) { btn.IsEnabled = true; btn.Content = "CLEAR.bat"; }
+                }
+            });
+        }
 
         private void SaveCustomCommands_Click(object sender, RoutedEventArgs e) { if (EditableCustomCommands.Any(c => string.IsNullOrWhiteSpace(c.Trigger))) { ShowCustomMessage("Сохранение", "У всех команд должно быть заполнено поле 'СОЧЕТАНИЕ'.", true); return; } _customCommandService.SaveCommands(EditableCustomCommands.ToList()); InitializeHotkeys(EditableCustomCommands.ToList()); ShowTempNotification("Команды сохранены!"); }
         private void AddCustomCommand_Click(object sender, RoutedEventArgs e) => EditableCustomCommands.Add(new CustomCommand { Description = "Новая команда", Type = "Reply" });
@@ -798,9 +826,6 @@ namespace iikoServiceHelper
         private void HotkeyTextBox_GotFocus(object sender, RoutedEventArgs e) { if (sender is TextBox txtBox) { _originalHotkeyText = txtBox.Text; txtBox.Text = "[ ЗАПИСЬ... ]"; txtBox.Foreground = (Brush)FindResource("BrushAccent"); _activeHotkeyRecordingBox = txtBox; _isRecordingHotkey = true; } }
         private void HotkeyTextBox_LostFocus(object sender, RoutedEventArgs e) { if (sender is TextBox txtBox && _isRecordingHotkey) { if (txtBox.Text == "[ ЗАПИСЬ... ]") txtBox.Text = _originalHotkeyText; txtBox.SetResourceReference(TextBox.ForegroundProperty, "BrushInputForeground"); _isRecordingHotkey = false; _activeHotkeyRecordingBox = null; } }
         private void CustomCommandsGrid_BeginningEdit(object sender, DataGridBeginningEditEventArgs e) { if (e.Row.DataContext is CustomCommand cmd && cmd.IsReadOnly) e.Cancel = true; }
-        private void BtnCopyPosM1_Click(object sender, RoutedEventArgs e) { Clipboard.SetText("https://m1.iiko.cards/ru-RU/About/DownloadPosInstaller?useRc=False"); ShowTempNotification("URL POS-ник M1 скопирован!"); }
-        private void BtnCopyPosM_Click(object sender, RoutedEventArgs e) { Clipboard.SetText("https://iiko.cards/ru-RU/About/DownloadPosInstaller?useRc=False"); ShowTempNotification("URL POS-ник M скопирован!"); }
-        private void OpenLogFolder_Click(object sender, RoutedEventArgs e) { _launcherService.OpenFolder(AppDir); }
         private void BtnCrmSettings_Click(object sender, RoutedEventArgs e) => ShowCustomMessage("Настройка CRM", "Убедитесь, что логин и пароль заполнены. Порт 9222.", false);
         private void TxtUpdateLink_Click(object sender, MouseButtonEventArgs e)
         {
