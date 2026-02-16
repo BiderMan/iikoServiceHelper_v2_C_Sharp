@@ -22,7 +22,6 @@ namespace iikoServiceHelper.Services
         private readonly ILogger<UpdateService>? _logger;
         private readonly FileService? _fileService;
 
-        private const string GitHubToken = "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";
         public UpdateService(Func<string, string, bool> showUpdateDialog, Action<string, string, bool> showCustomMessage, ILogger<UpdateService>? logger = null, FileService? fileService = null)
         {
             _showUpdateDialog = showUpdateDialog;
@@ -59,8 +58,6 @@ namespace iikoServiceHelper.Services
 
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("iikoServiceHelper/1.0");
-                client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github.v3+json");
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", GitHubToken);
                 var json = await client.GetStringAsync("https://api.github.com/repos/BiderMan/iikoServiceHelper_v2_C_Sharp/releases/latest");
                 _logger?.LogDebug("Получен ответ от GitHub API, парсинг...");
 
@@ -105,7 +102,7 @@ namespace iikoServiceHelper.Services
 
                             if (!string.IsNullOrEmpty(downloadUrl))
                             {
-                                await PerformUpdate(downloadUrl, tagName, GitHubToken);
+                                await PerformUpdate(downloadUrl, tagName);
                             }
                             else
                             {
@@ -152,7 +149,7 @@ namespace iikoServiceHelper.Services
             }
         }
 
-        private async Task PerformUpdate(string url, string version, string? githubToken = null)
+        private async Task PerformUpdate(string url, string version)
         {
             try
             {
@@ -168,11 +165,6 @@ namespace iikoServiceHelper.Services
                 StatusChanged?.Invoke("Скачивание...");
 
                 using var client = new HttpClient();
-                if (!string.IsNullOrEmpty(githubToken))
-                {
-                    _logger?.LogDebug("Добавлен токен авторизации для скачивания");
-                    client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", githubToken);
-                }
                 using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
                 _logger?.LogDebug("Статус ответа: {StatusCode}", response.StatusCode);
                 _fileService?.WriteDetailedLog($"[ОБНОВЛЕНИЕ] Статус ответа: {response.StatusCode}");
