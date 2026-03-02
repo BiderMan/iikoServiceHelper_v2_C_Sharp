@@ -101,13 +101,26 @@ namespace iikoServiceHelper.Services
                     _currentCts = new CancellationTokenSource();
 
                     var sw = Stopwatch.StartNew();
+                    // Добавляем защиту от зависания - максимальное время выполнения команды 30 секунд
+                    using var timeoutCts = new CancellationTokenSource(30000);
                     try
                     {
-                        await ExecuteCommand(item.Command, item.Parameter, _currentCts.Token);
+                        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_currentCts.Token, timeoutCts.Token);
+                        
+                        await ExecuteCommand(item.Command, item.Parameter, linkedCts.Token);
                     }
                     catch (OperationCanceledException)
                     {
-                        Log($"Action canceled: {item.HotkeyName}");
+                        if (timeoutCts.IsCancellationRequested)
+                        {
+                            Log($"Action timed out: {item.HotkeyName}", LogLevel.Warning);
+                            // Принудительно скрываем overlay при таймауте
+                            _host?.RunOnUIThread(() => _host?.HideOverlay());
+                        }
+                        else
+                        {
+                            Log($"Action canceled: {item.HotkeyName}");
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -119,6 +132,9 @@ namespace iikoServiceHelper.Services
                     Log($"Finished item: {item.HotkeyName}. Duration: {sw.ElapsedMilliseconds}ms");
                 }
 
+                // Гарантированно скрываем оверлей после завершения всех команд
+                _host?.RunOnUIThread(() => _host?.HideOverlay());
+
                 _host?.RunOnUIThread(() =>
                 {
                     // Запускаем асинхронную операцию очистки
@@ -128,6 +144,8 @@ namespace iikoServiceHelper.Services
             catch (Exception ex)
             {
                 Log($"CRITICAL QUEUE ERROR: {ex.Message}", LogLevel.Critical);
+                // Гарантированно скрываем оверлей при критической ошибке
+                _host?.RunOnUIThread(() => _host?.HideOverlay());
                 lock (_queueLock)
                 {
                     _isQueueRunning = false;
@@ -193,8 +211,13 @@ namespace iikoServiceHelper.Services
                 }
             }
 
+            // Всегда скрываем оверлей после завершения всех команд
             await Task.Delay(250); // Короткая задержка перед скрытием
-            if (!_isQueueRunning) _host?.HideOverlay();
+            if (!_isQueueRunning) 
+            {
+                Log("Hiding overlay after queue completion.");
+                _host?.HideOverlay();
+            }
         }
 
         private void UpdateOverlayMessage()
@@ -309,11 +332,8 @@ namespace iikoServiceHelper.Services
             finally
             {
                 _hotkeyManager.IsInputBlocked = false;
-                if (_hotkeyManager.IsAltPhysicallyDown)
-                {
-                    NativeMethods.PressAltDown();
-                    Log("Restored Alt key.");
-                }
+                // Не пытаемся "восстановить" ALT - это вызывает залипание
+                // Если ALT был зажат до команды, он остаётся зажатым без дополнительных действий
                 sw.Stop();
                 Log($"[END] Execute {command}. Total duration: {sw.ElapsedMilliseconds}ms");
             }
@@ -324,14 +344,24 @@ namespace iikoServiceHelper.Services
             if (_host != null && _host.IsInputFocused()) return;
 
             Log("Waiting for input focus...");
-            while (_host != null && !_host.IsInputFocused())
+            // Ограничиваем максимальное время ожидания 5 секундами
+            using var timeoutCts = new CancellationTokenSource(5000);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+            try
             {
-                CheckCancellation(token);
-                _host.RunOnUIThread(() => _host.UpdateOverlay("Ожидание поля ввода..."));
-                await Task.Delay(_settings.Delays.FocusWait, token);
+                while (_host != null && !_host.IsInputFocused())
+                {
+                    CheckCancellation(linkedCts.Token);
+                    _host.RunOnUIThread(() => _host.UpdateOverlay("Ожидание поля ввода..."));
+                    await Task.Delay(_settings.Delays.FocusWait, linkedCts.Token);
+                }
+                Log("Input focus detected.");
+                _host?.RunOnUIThread(UpdateOverlayMessage);
             }
-            Log("Input focus detected.");
-            _host?.RunOnUIThread(UpdateOverlayMessage);
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                Log("Timeout waiting for input focus, proceeding anyway.");
+            }
         }
 
         private async Task TypeText(string text, CancellationToken token, bool forceTypeMode = false)
@@ -351,19 +381,21 @@ namespace iikoServiceHelper.Services
                 
                 try
                 {
+                    // Используем RunOnUIThread только для установки текста (это требует UI thread)
                     _host?.RunOnUIThread(() => _host.ClipboardSetText(text));
-                    // Задержка перед вставкой не нужна, т.к. RunOnUIThread (Dispatcher.Invoke) - блокирующий вызов.
 
                     // Используем более прямой способ вставки через нативный метод
                     NativeMethods.SendCtrlV();
                     Log("Выполнена вставка через NativeMethods.SendCtrlV()");
                     _pasteCount++;
                     Log($"Paste operation registered. Total pastes in queue: {_pasteCount}");
-                    
-                    // Очищаем буфер обмена сразу после вставки
-                    _host?.RunOnUIThread(() => _host.ClipboardClear());
+
+                    // Очищаем буфер обмена - без RunOnUIThread, так как Clipboard API может работать из любого потока
+                    // Добавляем небольшую задержку чтобы вставка успела завершиться
+                    await Task.Delay(10, token);
+                    _host?.ClipboardClear();
                     Log("Буфер обмена очищен после вставки.");
-                    
+
                     // Задержка после вставки перенесена в вызывающий метод (ExecuteCommand), чтобы она была непосредственно перед нажатием Enter.
                 }
                 catch (Exception ex)
@@ -412,11 +444,8 @@ namespace iikoServiceHelper.Services
 
         private void SafeReleaseModifiers()
         {
-            if (_hotkeyManager.IsAltPhysicallyDown)
-            {
-                NativeMethods.SendKey(0x11); // Ctrl
-                Thread.Sleep(20);
-            }
+            // Используем стандартный метод ReleaseModifiers из NativeMethods
+            // Не пытаемся добавить дополнительную логику - это вызывало проблемы с залипанием
             NativeMethods.ReleaseModifiers();
         }
 
@@ -424,23 +453,43 @@ namespace iikoServiceHelper.Services
         {
             _host?.RunOnUIThread(() => _host.ClipboardClear());
 
-            _host?.SendKeysWait("^c");
-            await Task.Delay(_settings.Delays.KeyPress, token);
+            // Используем NativeMethods.SendCtrlC() вместо SendKeysWait для надёжности
+            NativeMethods.SendCtrlC();
+            Log("Sent Ctrl+C via native API");
+            
+            // Увеличенная задержка для надёжного копирования в буфер
+            await Task.Delay(100, token);
 
             string? text = null;
-            _host?.RunOnUIThread(() => { if (_host.ClipboardContainsText()) text = _host.ClipboardGetText(); });
+            _host?.RunOnUIThread(() => { 
+                if (_host.ClipboardContainsText()) 
+                {
+                    text = _host.ClipboardGetText();
+                    Log($"Clipboard contains text: '{text}'");
+                }
+                else
+                {
+                    Log("Clipboard is empty or doesn't contain text");
+                }
+            });
 
             if (!string.IsNullOrEmpty(text))
             {
                 string fixedText = ConvertLayout(text);
+                Log($"Converted text: '{fixedText}'");
                 if (text != fixedText)
                 {
                     _host?.RunOnUIThread(() => _host.ClipboardSetText(fixedText));
 
-                    _host?.SendKeysWait("^v");
+                    NativeMethods.SendCtrlV();
+                    Log("Sent Ctrl+V via native API");
                     await Task.Delay(_settings.Delays.ActionPause, token);
 
                     if (_host != null) await _host.CleanClipboardHistoryAsync(2);
+                }
+                else
+                {
+                    Log("Text already in correct layout, no changes needed");
                 }
             }
         }

@@ -83,6 +83,18 @@ namespace iikoServiceHelper
             SendKeyStroke(VK_CONTROL, true);
         }
 
+        public static void SendCtrlC()
+        {
+            // Ctrl Down, C Down, C Up, Ctrl Up
+            SendKeyStroke(VK_CONTROL, false);
+            Thread.Sleep(20);
+            SendKeyStroke(0x43, false); // VK_C = 0x43
+            Thread.Sleep(20);
+            SendKeyStroke(0x43, true);
+            Thread.Sleep(20);
+            SendKeyStroke(VK_CONTROL, true);
+        }
+
         public static void SendKey(ushort vk)
         {
             SendKeyStroke(vk, false);

@@ -269,7 +269,12 @@
                           <TextBox x:Name="txtCrmLogin" Style="{StaticResource ThemedTextBox}" Width="150" Margin="0,0,15,0" ToolTip="Логин для CRM" 
                                    Text="{Binding CrmViewModel.CrmLogin, UpdateSourceTrigger=PropertyChanged}"/>
                           <TextBlock Text="Пароль:" VerticalAlignment="Center" Foreground="#666666" Margin="0,0,5,0"/>
-                          <PasswordBox x:Name="txtCrmPassword" Style="{StaticResource ThemedPasswordBox}" Width="150" ToolTip="Пароль для CRM" LostFocus="txtCrmPassword_LostFocus"/>
+                          <Grid Width="120">
+                              <PasswordBox x:Name="txtCrmPassword" Style="{StaticResource ThemedPasswordBox}" ToolTip="Пароль для CRM" LostFocus="txtCrmPassword_LostFocus"/>
+                              <TextBox x:Name="txtCrmPasswordVisible" Style="{StaticResource ThemedTextBox}" ToolTip="Пароль для CRM" Visibility="Collapsed" 
+                                       Text="{Binding CrmViewModel.CrmPassword, UpdateSourceTrigger=PropertyChanged}"/>
+                          </Grid>
+                          <ToggleButton x:Name="btnShowPassword" Content="👁" Width="30" Margin="5,0,0,0" ToolTip="Показать/скрыть пароль" Click="btnShowPassword_Click"/>
                       </StackPanel>
 
                       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">

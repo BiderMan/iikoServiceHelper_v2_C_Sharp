@@ -70,6 +70,37 @@
             </Setter>
         </Style>
 
+        <!-- ToggleButton Style (for password visibility) -->
+        <Style TargetType="ToggleButton">
+            <Setter Property="Background" Value="{DynamicResource BrushButtonBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushButtonForeground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushButtonBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource BrushButtonHoverBackground}" />
+                                <Setter TargetName="border" Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource BrushAccent}"/>
+                                <Setter Property="Foreground" Value="#121212"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- TextBox Style -->
         <Style x:Key="ThemedTextBox" TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource BrushInputBackground}"/>

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -107,8 +108,8 @@ namespace iikoServiceHelper.Services
                     await RunCommandAsync("net", $@"use \\{networkPath} /user:{username} {password} /persistent:yes");
                 }
                 
-                // Открываем папку
-                return OpenFolder(networkPath);
+                // Открываем папку с правильным сетевым путём
+                return OpenFolder($"\\\\{networkPath}");
             }
             catch (Exception ex)
             {
@@ -120,7 +121,7 @@ namespace iikoServiceHelper.Services
         /// <summary>
         /// Запустить команду и дождаться завершения
         /// </summary>
-        public async Task<bool> RunCommandAsync(string fileName, string arguments, bool createNoWindow = true)
+        public async Task<bool> RunCommandAsync(string fileName, string arguments, bool createNoWindow = true, int timeoutMs = 10000)
         {
             try
             {
@@ -134,7 +135,19 @@ namespace iikoServiceHelper.Services
                 };
                 
                 process.Start();
-                await process.WaitForExitAsync();
+                
+                // Добавляем таймаут для избежания зависания
+                using var cts = new CancellationTokenSource(timeoutMs);
+                try
+                {
+                    await process.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(); } catch { }
+                    _logger?.LogWarning("Command timed out: {FileName} {Args}", fileName, arguments);
+                    return false;
+                }
                 
                 _logger?.LogInformation("Command completed: {FileName} {Args}", fileName, arguments);
                 return process.ExitCode == 0;

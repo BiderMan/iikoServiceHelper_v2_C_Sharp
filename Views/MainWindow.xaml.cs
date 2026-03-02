@@ -257,6 +257,9 @@ namespace iikoServiceHelper
             _viewModel.SettingsViewModel.UsePasteModeForQuickReplies = settings.UsePasteModeForQuickReplies;
             _viewModel.CrmViewModel.CrmLogin = settings.CrmLogin;
             _viewModel.CrmViewModel.CrmPassword = settings.CrmPassword;
+            // Инициализируем PasswordBox загруженным паролем
+            txtCrmPassword.Password = settings.CrmPassword;
+            txtCrmPasswordVisible.Text = settings.CrmPassword;
             _viewModel.IsAltBlockerEnabled = settings.IsAltBlockerEnabled;
             _viewModel.CommandCount = settings.CommandCount;
             if (IsOnScreen(settings.WindowLeft, settings.WindowTop, settings.WindowWidth, settings.WindowHeight)) { this.Top = settings.WindowTop; this.Left = settings.WindowLeft; }
@@ -337,9 +340,37 @@ namespace iikoServiceHelper
         private bool IsHotkeyDuplicate(string keyCombo, CustomCommand current) => EditableCustomCommands.Any(c => c != current && c.Trigger.Equals(keyCombo, StringComparison.OrdinalIgnoreCase));
         private void ShowTempNotification(string message) { if (_tempNotificationPopup == null || _tempNotificationTimer == null) return; if (_tempNotificationPopup.Child is Border border && border.Child is TextBlock textBlock) { border.Background = (Brush)FindResource("BrushBackground"); border.BorderBrush = (Brush)FindResource("BrushAccent"); textBlock.Foreground = (Brush)FindResource("BrushForeground"); textBlock.Text = message; } _tempNotificationPopup.PlacementTarget = this; _tempNotificationPopup.IsOpen = true; _tempNotificationTimer.Start(); }
         private bool IsOnScreen(double left, double top, double width, double height) => Forms.Screen.AllScreens.Any(s => s.WorkingArea.IntersectsWith(new System.Drawing.Rectangle((int)left, (int)top, (int)width, (int)height)));
-        public bool IsInputFocused() { try { var el = AutomationElement.FocusedElement; if (el == null) return false; var type = el.Current.ControlType; return type == ControlType.Edit || type == ControlType.Document || type == ControlType.Custom || type == ControlType.Text; } catch { return true; } }
+        public bool IsInputFocused() { 
+            try { 
+                var el = AutomationElement.FocusedElement; 
+                if (el == null) return false; 
+                var type = el.Current.ControlType; 
+                return type == ControlType.Edit || type == ControlType.Document || type == ControlType.Custom || type == ControlType.Text; 
+            } catch (Exception ex) { 
+                Debug.WriteLine($"IsInputFocused error: {ex.Message}");
+                return false; 
+            } 
+        }
 
-        private void txtCrmPassword_LostFocus(object sender, RoutedEventArgs e) { if (sender is PasswordBox pb) _viewModel.CrmViewModel.CrmPassword = pb.Password; }
+        private void txtCrmPassword_LostFocus(object sender, RoutedEventArgs e) { if (sender is PasswordBox pb) { _viewModel.CrmViewModel.CrmPassword = pb.Password; txtCrmPasswordVisible.Text = pb.Password; } }
+
+        private void btnShowPassword_Click(object sender, RoutedEventArgs e)
+        {
+            if (btnShowPassword.IsChecked == true)
+            {
+                // Показать пароль - копируем из PasswordBox в TextBox и показываем TextBox
+                txtCrmPasswordVisible.Text = txtCrmPassword.Password;
+                txtCrmPassword.Visibility = System.Windows.Visibility.Collapsed;
+                txtCrmPasswordVisible.Visibility = System.Windows.Visibility.Visible;
+            }
+            else
+            {
+                // Скрыть пароль - копируем из TextBox в PasswordBox и показываем PasswordBox
+                txtCrmPassword.Password = txtCrmPasswordVisible.Text;
+                txtCrmPassword.Visibility = System.Windows.Visibility.Visible;
+                txtCrmPasswordVisible.Visibility = System.Windows.Visibility.Collapsed;
+            }
+        }
 
         #region ICommandHost Implementation
         void ICommandHost.UpdateOverlay(string msg) => _overlay.ShowMessage(msg);
