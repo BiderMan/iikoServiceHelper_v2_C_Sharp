@@ -67,11 +67,17 @@ namespace iikoServiceHelper.Services
                 {
                     if (isAlt)
                     {
+                        bool wasAltOnly = !_otherKeyDuringAlt;
                         _isAltDown = false;
-                        if (!_otherKeyDuringAlt && (_hotkeyManager == null || !_hotkeyManager.IsInputBlocked))
+                        _otherKeyDuringAlt = false; // Reset for next sequence
+
+                        if (wasAltOnly && (_hotkeyManager == null || !_hotkeyManager.IsInputBlocked))
                         {
-                            SendKey(VK_CONTROL);
-                            _logAction("Global Alt Hook: Suppressed Alt menu (Sent Ctrl).");
+                            // FIX: The "stuck Alt" issue is caused by consuming the Alt-up event (returning 1).
+                            // We will now let the event pass through to fix the stuck key. This may cause
+                            // the browser menu to occasionally appear if Alt is pressed alone, but that is
+                            // a minor issue compared to a stuck modifier key.
+                            _logAction("Global Alt Hook: Lonely Alt-up detected. Passing event through to prevent stuck keys.");
                         }
                     }
                 }

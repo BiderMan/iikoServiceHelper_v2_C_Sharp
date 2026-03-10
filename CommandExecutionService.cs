@@ -212,7 +212,7 @@ namespace iikoServiceHelper.Services
             }
 
             // Всегда скрываем оверлей после завершения всех команд
-            await Task.Delay(250); // Короткая задержка перед скрытием
+            await Task.Delay(_settings.Delays.OverlayHidingDelay); // Короткая задержка перед скрытием
             if (!_isQueueRunning) 
             {
                 Log("Hiding overlay after queue completion.");
@@ -259,7 +259,7 @@ namespace iikoServiceHelper.Services
                 // Берем эту задачу на себя.
                 if (!wasRunning)
                 {
-                    await Task.Delay(1000); // Показываем сообщение 1 секунду
+                    await Task.Delay(_settings.Delays.OverlayClearedMessageDuration); // Показываем сообщение 1 секунду
                     // Перепроверяем, не запустилось ли что-то новое за это время
                     if (!_isQueueRunning)
                     {
@@ -298,7 +298,7 @@ namespace iikoServiceHelper.Services
                         NativeMethods.SendKey(NativeMethods.VK_RETURN);
                         if (parameter is string args && !string.IsNullOrEmpty(args))
                         {
-                            await Task.Delay(200, token); CheckCancellation(token);
+                            await Task.Delay(_settings.Delays.BotCommandPause, token); CheckCancellation(token);
                             NativeMethods.SendKey(NativeMethods.VK_SPACE);
                             await Task.Delay(_settings.Delays.KeyPress, token); CheckCancellation(token);
                             await TypeText(args, token, forceTypeMode: true);
@@ -319,7 +319,7 @@ namespace iikoServiceHelper.Services
                         {
                             await TypeText(text, token);
                             // Небольшая задержка, чтобы приложение-получатель успело обработать ввод/вставку перед нажатием Enter.
-                            await Task.Delay(50, token); CheckCancellation(token);
+                            await Task.Delay(_settings.Delays.KeyPress, token); CheckCancellation(token);
                             NativeMethods.SendKey(NativeMethods.VK_RETURN);
                         }
                         break;
@@ -390,11 +390,13 @@ namespace iikoServiceHelper.Services
                     _pasteCount++;
                     Log($"Paste operation registered. Total pastes in queue: {_pasteCount}");
 
-                    // Очищаем буфер обмена - без RunOnUIThread, так как Clipboard API может работать из любого потока
-                    // Добавляем небольшую задержку чтобы вставка успела завершиться
-                    await Task.Delay(10, token);
-                    _host?.ClipboardClear();
-                    Log("Буфер обмена очищен после вставки.");
+                    // Очищаем буфер обмена - теперь через UI-поток для надежности
+                    await Task.Delay(_settings.Delays.PasteClearDelay, token);
+                    _host?.RunOnUIThread(() => {
+                        _host.ClipboardClear();
+                        _host.ClipboardSetText(string.Empty); // Дополнительно устанавливаем пустую строку
+                    });
+                    Log("Буфер обмена очищен и установлена пустая строка.");
 
                     // Задержка после вставки перенесена в вызывающий метод (ExecuteCommand), чтобы она была непосредственно перед нажатием Enter.
                 }
@@ -458,7 +460,7 @@ namespace iikoServiceHelper.Services
             Log("Sent Ctrl+C via native API");
             
             // Увеличенная задержка для надёжного копирования в буфер
-            await Task.Delay(100, token);
+            await Task.Delay(_settings.Delays.ActionPause, token);
 
             string? text = null;
             _host?.RunOnUIThread(() => { 

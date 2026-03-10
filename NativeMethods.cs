@@ -17,6 +17,7 @@ namespace iikoServiceHelper
         public const ushort VK_RETURN = 0x0D;
         public const ushort VK_SPACE = 0x20;
         public const ushort VK_TAB = 0x09;
+        public const ushort VK_F24 = 0x87;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct INPUT

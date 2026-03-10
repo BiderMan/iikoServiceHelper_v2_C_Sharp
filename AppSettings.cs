@@ -38,6 +38,10 @@ namespace iikoServiceHelper.Models
             public int KeyPress { get; set; } = 50;
             public int ActionPause { get; set; } = 100;
             public int FocusWait { get; set; } = 500;
+            public int BotCommandPause { get; set; } = 200;
+            public int PasteClearDelay { get; set; } = 20;
+            public int OverlayHidingDelay { get; set; } = 250;
+            public int OverlayClearedMessageDuration { get; set; } = 1000;
         }
         
         public bool UsePasteModeForQuickReplies { get; set; } = false;
