@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using static iikoServiceHelper.NativeMethods;
 
 namespace iikoServiceHelper.Services
@@ -14,6 +15,11 @@ namespace iikoServiceHelper.Services
         private readonly LowLevelKeyboardProc _proc;
         private bool _isAltDown = false;
         private bool _otherKeyDuringAlt = false;
+        private Timer? _keyStateTimer;
+        private int _altKeyDownCount = 0;
+        private int _altKeyUpCount = 0;
+        private DateTime _lastAltDownTime = DateTime.MinValue;
+        private DateTime _lastAltUpTime = DateTime.MinValue;
 
         public AltBlockerService(IHotkeyManager? hotkeyManager, Action<string> logAction)
         {
@@ -29,6 +35,10 @@ namespace iikoServiceHelper.Services
             {
                 _hookId = SetHook(_proc);
                 _logAction("Global Alt Hook installed.");
+
+                // Запускаем таймер контроля состояния
+                _keyStateTimer = new Timer(CheckKeyState, null, 0, 100);
+                _logAction("Key state monitor started (100ms interval).");
             }
             catch (Exception ex) { _logAction($"Hook Error: {ex.Message}"); }
         }
@@ -103,6 +113,72 @@ namespace iikoServiceHelper.Services
             }
         }
 
-        public void Dispose() => Disable();
+        public void Dispose()
+        {
+            _keyStateTimer?.Dispose();
+            Disable();
+        }
+
+        private void CheckKeyState(object state)
+        {
+            try
+            {
+                // Проверяем реальное состояние клавиши Alt через GetAsyncKeyState
+                bool altPhysicallyDown = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_MENU) & 0x8000) != 0;
+
+                // Если наш внутренний флаг говорит, что ALT зажат, но физически он отпущен - сбрасываем
+                if (_isAltDown && !altPhysicallyDown)
+                {
+                    _logAction($"⚠️ State mismatch detected: _isAltDown={_isAltDown}, real state={altPhysicallyDown}. Forcing ALT release.");
+                    ForceReleaseAlt();
+                }
+                // Если физически ALT зажат, но наш флаг не сигнализирует об этом - обновляем
+                else if (!_isAltDown && altPhysicallyDown)
+                {
+                    _logAction($"⚠️ State mismatch detected: _isAltDown={_isAltDown}, real state={altPhysicallyDown}. Updating internal state.");
+                    _isAltDown = true;
+                    _otherKeyDuringAlt = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logAction($"Error in CheckKeyState: {ex.Message}");
+            }
+        }
+
+        private void ForceReleaseAlt()
+        {
+            try
+            {
+                _logAction("🔧 ForceReleaseAlt: Releasing ALT key via native methods...");
+
+                // Используем улучшенный метод ReleaseModifiers из CommandExecutionService
+                // Но здесь мы просто явно отправляем события отпускания ALT
+                NativeMethods.ReleaseModifiers(NativeMethods.VK_LMENU, NativeMethods.VK_RMENU, NativeMethods.VK_MENU);
+
+                // Принудительно сбрасываем наши флаги
+                _isAltDown = false;
+                _otherKeyDuringAlt = false;
+
+                _logAction("✅ ForceReleaseAlt completed.");
+            }
+            catch (Exception ex)
+            {
+                _logAction($"❌ ForceReleaseAlt error: {ex.Message}");
+            }
+        }
+
+        private void LogAltState(string context, int vkCode, bool isAlt, string eventType)
+        {
+            string inputBlockedStatus = _hotkeyManager?.IsInputBlocked.ToString() ?? "null";
+            _logAction($"[{DateTime.Now:HH:mm:ss.fff}] {context}\n" +
+                      $"  Event: {eventType}\n" +
+                      $"  VK_CODE: {vkCode} (IsAlt: {isAlt})\n" +
+                      $"  _isAltDown: {_isAltDown}\n" +
+                      $"  _otherKeyDuringAlt: {_otherKeyDuringAlt}\n" +
+                      $"  IsInputBlocked: {inputBlockedStatus}\n" +
+                      $"  _altKeyDownCount: {_altKeyDownCount}\n" +
+                      $"  _altKeyUpCount: {_altKeyUpCount}");
+        }
     }
 }

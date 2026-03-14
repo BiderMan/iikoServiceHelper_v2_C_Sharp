@@ -332,8 +332,10 @@ namespace iikoServiceHelper.Services
             finally
             {
                 _hotkeyManager.IsInputBlocked = false;
-                // Не пытаемся "восстановить" ALT - это вызывает залипание
-                // Если ALT был зажат до команды, он остаётся зажатым без дополнительных действий
+
+                // Принудительно освобождаем ALT после завершения команды
+                ForceReleaseAlt();
+
                 sw.Stop();
                 Log($"[END] Execute {command}. Total duration: {sw.ElapsedMilliseconds}ms");
             }
@@ -381,6 +383,9 @@ namespace iikoServiceHelper.Services
                 
                 try
                 {
+                    // Перед вставкой убедимся, что ALT не зажат
+                    ForceReleaseAlt();
+
                     // Используем RunOnUIThread только для установки текста (это требует UI thread)
                     _host?.RunOnUIThread(() => _host.ClipboardSetText(text));
 
@@ -446,9 +451,41 @@ namespace iikoServiceHelper.Services
 
         private void SafeReleaseModifiers()
         {
-            // Используем стандартный метод ReleaseModifiers из NativeMethods
-            // Не пытаемся добавить дополнительную логику - это вызывало проблемы с залипанием
+            // Явно освобождаем ALT-клавиши для предотвращения залипания
+            NativeMethods.ReleaseModifiers(
+                NativeMethods.VK_LMENU,
+                NativeMethods.VK_RMENU,
+                NativeMethods.VK_MENU
+            );
+
+            // Дополнительное освобождение всех модификаторов
             NativeMethods.ReleaseModifiers();
+
+            Log("SafeReleaseModifiers: ALT и другие модификаторы явно освобождены");
+        }
+
+        /// <summary>
+        /// Принудительно освобождает ALT-клавиши для предотвращения залипания
+        /// </summary>
+        private void ForceReleaseAlt()
+        {
+            try
+            {
+                Log("ForceReleaseAlt: Попытка явного освобождения ALT...");
+
+                // Явно отправляем события отпускания для всех вариантов ALT
+                NativeMethods.ReleaseModifiers(
+                    NativeMethods.VK_LMENU,
+                    NativeMethods.VK_RMENU,
+                    NativeMethods.VK_MENU
+                );
+
+                Log("ForceReleaseAlt: ALT явно освобождены через ReleaseModifiers");
+            }
+            catch (Exception ex)
+            {
+                Log($"ForceReleaseAlt: Ошибка при освобождении ALT: {ex.Message}", LogLevel.Error);
+            }
         }
 
         private async Task FixLayout(CancellationToken token)

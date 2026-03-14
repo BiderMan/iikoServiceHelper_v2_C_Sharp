@@ -12,6 +12,8 @@ namespace iikoServiceHelper
         public const ushort VK_CONTROL = 0x11;
         public const ushort VK_SHIFT = 0x10;
         public const ushort VK_MENU = 0x12; // Alt
+        public const ushort VK_LMENU = 0xA2;   // Left Alt
+        public const ushort VK_RMENU = 0xA3;   // Right Alt
         public const ushort VK_V = 0x56;
         public const ushort VK_W = 0x57;
         public const ushort VK_RETURN = 0x0D;
@@ -152,10 +154,32 @@ namespace iikoServiceHelper
                     SendKeyStroke(VK_CONTROL, true);
                 }
             }
-            if (ctrl) 
+            if (ctrl)
                 SendKeyStroke(VK_CONTROL, true);
-            if (shift) 
+            if (shift)
                 SendKeyStroke(VK_SHIFT, true);
+        }
+
+        /// <summary>
+        /// Явно освобождает указанные клавиши
+        /// </summary>
+        /// <param name="keys">Список кодов клавиш для освобождения</param>
+        public static void ReleaseModifiers(params ushort[] keys)
+        {
+            if (keys == null || keys.Length == 0) return;
+
+            foreach (ushort key in keys)
+            {
+                try
+                {
+                    SendKeyStroke(key, true);
+                }
+                catch (Exception ex)
+                {
+                    // Игнорируем ошибки для отдельных клавиш
+                    System.Diagnostics.Debug.WriteLine($"Error releasing key {key}: {ex.Message}");
+                }
+            }
         }
 
         public static void ReleaseAlphaKeys()
